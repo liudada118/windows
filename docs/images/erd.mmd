@@ -1,0 +1,68 @@
+erDiagram
+    CUSTOMER ||--o{ ORDER : has
+    ORDER ||--|{ ORDER_ITEM : contains
+    ORDER_ITEM ||--|| WINDOW_DESIGN : "is based on"
+    WINDOW_DESIGN ||--|{ COMPONENT : consists_of
+    WINDOW_DESIGN ||--|| PRODUCT_SERIES : "uses"
+    PRODUCT_SERIES ||--|{ CALCULATION_RULE : defines
+
+    CUSTOMER {
+        string customer_id PK
+        string name
+        string phone
+        string address
+        string type "成交客户, 潜在客户"
+        string salesman
+    }
+
+    ORDER {
+        string order_id PK
+        string customer_id FK
+        string order_number
+        string status "意向单, 合同单, 生产中, 已完成, 已发货"
+        datetime created_at
+        decimal total_amount
+        decimal paid_amount
+        string remarks
+    }
+
+    ORDER_ITEM {
+        string item_id PK
+        string order_id FK
+        string window_design_id FK
+        string window_code "C1, C2, ..."
+        int quantity
+        decimal area
+        decimal amount
+        string location
+        string remarks
+    }
+
+    WINDOW_DESIGN {
+        string design_id PK
+        string product_series_id FK
+        string name
+        decimal total_width
+        decimal total_height
+        string design_data_json "存储画布上的完整设计信息"
+    }
+
+    COMPONENT {
+        string component_id PK
+        string design_id FK
+        string type "外框, 中梃, 扇, 玻璃, 格条, 填充物"
+        string component_data_json "存储组件的详细属性"
+    }
+
+    PRODUCT_SERIES {
+        string series_id PK
+        string name
+        string description
+    }
+
+    CALCULATION_RULE {
+        string rule_id PK
+        string series_id FK
+        string rule_type "外框公式, 内扇公式, 报价公式, ..."
+        string formula "存储具体的计算公式脚本"
+    }
