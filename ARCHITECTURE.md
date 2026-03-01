@@ -1,376 +1,329 @@
-# WindoorDesigner 项目架构文档
+# 架构文档 — 画门窗设计器 (windoor-designer)
 
-> **最后更新于**: 2026-03-01
+> 本文档由 Manus 自动生成和维护。最后更新于：2026-03-01
 
 ## 1. 项目概述
 
-WindoorDesigner 是一款基于 Web 的门窗设计软件，提供 2D 绘图编辑器和 3D 实时预览，支持门窗外框绘制、中梃/横档分割、扇类型配置、预设窗型模板、尺寸标注、报价单生成等核心功能。产品定位为门窗行业的设计与报价一体化工具。
+**画门窗设计器**是一款面向门窗行业的专业 CAD 级 Web 应用，用于在浏览器中完成门窗的 2D 绘图设计与 3D 实时预览。用户可以通过可视化画布创建外框、添加中梃（竖向/横向分隔条）、设置开启扇类型、选择型材颜色，并实时查看尺寸标注和 3D 渲染效果。
+
+项目采用纯前端静态架构（web-static），无后端服务，所有设计数据在浏览器端通过 React Context + useReducer 管理，支持撤销/恢复操作历史。部署为静态站点，通过 Nginx 在 `http://8.140.238.44/windows/` 路径提供服务。
+
+**核心能力：**
+
+- 2D SVG 画布绘图（工业蓝图风格，含网格背景、3D 立体型材效果、尺寸标注）
+- 3D 实时预览（基于 Three.js / React Three Fiber，支持旋转、缩放、平移）
+- 5 种预设窗型模板（单扇、两等分、三等分、上下分、田字格）
+- 10 种开启方式（固定、左/右内开、上/下悬、左/右内开内倒、左/右推拉、折叠）
+- 8 种型材颜色预设
+- 中梃拖拽调整位置
+- 完整的撤销/恢复历史
+- 键盘快捷键支持
 
 ## 2. 技术栈
 
-| 类别 | 技术 | 版本 | 说明 |
-|------|------|------|------|
-| 前端框架 | React | 19.x | 核心 UI 框架 |
-| 路由 | Wouter | 3.x | 轻量级客户端路由 |
-| 样式 | Tailwind CSS | 4.x | 原子化 CSS 框架 |
-| UI 组件库 | shadcn/ui + Radix UI | - | 基础 UI 组件 |
-| 动画 | Framer Motion | 12.x | 交互动画 |
-| 图表 | Recharts | 2.x | 数据可视化（备用） |
-| 构建工具 | Vite | 7.x | 开发服务器与构建 |
-| 语言 | TypeScript | 5.6 | 类型安全 |
-| ID 生成 | nanoid | 5.x | 唯一标识符生成 |
-| 通知 | Sonner | 2.x | Toast 通知 |
-| 字体 | JetBrains Mono + Inter | - | 等宽数值 + UI 标签 |
-| 3D 引擎 | Three.js | 0.183 | 3D 预览渲染（含 OrbitControls） |
+| 分类 | 技术 | 版本/说明 |
+| :--- | :--- | :--- |
+| **前端框架** | React | 19.1.1 |
+| **构建工具** | Vite | 7.x |
+| **CSS 框架** | Tailwind CSS | 4.x（通过 @tailwindcss/vite 插件） |
+| **UI 组件库** | shadcn/ui (Radix UI) | 基于 Radix 原语的定制组件 |
+| **路由** | Wouter | 轻量级 React 路由 |
+| **3D 渲染** | Three.js + @react-three/fiber + @react-three/drei | 3D 预览引擎 |
+| **编程语言** | TypeScript | 5.x |
+| **包管理器** | pnpm | — |
+| **字体** | JetBrains Mono + Noto Sans SC | Google Fonts CDN |
+| **图标** | Lucide React | — |
+| **通知** | Sonner | Toast 通知 |
+| **部署环境** | Nginx (静态站点) | 服务器 8.140.238.44，路径 /windows/ |
 
 ## 3. 目录结构
 
 ```
 windoor-designer/
 ├── client/
-│   ├── index.html                    # HTML 入口
-│   ├── public/                       # 静态配置文件
+│   ├── index.html                    # HTML 入口（引入 Google Fonts）
+│   ├── public/                       # 静态配置文件（favicon 等）
 │   └── src/
-│       ├── main.tsx                  # React 入口
-│       ├── App.tsx                   # 路由与全局 Provider
-│       ├── index.css                 # 全局样式与设计令牌
+│       ├── main.tsx                  # React 入口点
+│       ├── App.tsx                   # 路由配置 & 全局 Provider
+│       ├── index.css                 # 全局样式 & Tailwind 主题变量
+│       ├── const.ts                  # 共享常量
+│       ├── pages/
+│       │   ├── Home.tsx              # 主设计器页面（集成所有面板）
+│       │   └── NotFound.tsx          # 404 页面
 │       ├── components/
-│       │   ├── CanvasRenderer.tsx     # Canvas 2D 渲染引擎
-│       │   ├── Toolbar.tsx           # 左侧工具栏
-│       │   ├── PropertiesPanel.tsx   # 右侧属性面板
-│       │   ├── TopBar.tsx            # 顶部菜单栏
-│       │   ├── StatusBar.tsx         # 底部状态栏
-│       │   ├── QuoteDialog.tsx       # 报价单对话框
-│       │   ├── MobileToolbar.tsx     # 移动端底部工具栏
-│       │   ├── MobilePropertiesDrawer.tsx # 移动端属性抽屉面板
-│       │   ├── ThreePreview.tsx      # Three.js 3D 预览组件（Lazy 加载）
-│       │   ├── ScenePreview.tsx      # 实景照片融合组件（Lazy 加载）
-│       │   ├── ErrorBoundary.tsx     # 错误边界
-│       │   └── ui/                   # shadcn/ui 基础组件
+│       │   ├── Canvas.tsx            # SVG 2D 画布渲染引擎（核心）
+│       │   ├── Preview3D.tsx         # Three.js 3D 预览组件
+│       │   ├── TopToolbar.tsx        # 顶部工具栏（模板选择、视图切换）
+│       │   ├── Toolbox.tsx           # 左侧工具箱（绘图工具、扇类型）
+│       │   ├── PropertyPanel.tsx     # 右侧属性面板（尺寸、颜色、扇设置）
+│       │   ├── ErrorBoundary.tsx     # 错误边界组件
+│       │   └── ui/                   # shadcn/ui 基础组件（40+ 个）
 │       ├── contexts/
-│       │   └── ThemeContext.tsx       # 主题上下文
+│       │   ├── DesignerContext.tsx    # 设计器全局状态（核心状态管理）
+│       │   └── ThemeContext.tsx       # 主题上下文（亮/暗模式）
 │       ├── hooks/
-│       │   ├── useEditorStore.ts     # 编辑器状态管理
-│       │   ├── useIsMobile.ts       # 响应式设备检测
-│       │   └── useTouch.ts          # 触摸事件处理
-│       ├── lib/
-│       │   ├── types.ts              # 核心数据模型与类型定义
-│       │   ├── window-factory.ts     # 窗口工厂函数与预设模板
-│       │   ├── window3d.ts           # 3D 模型生成器（WindowUnit → Three.js 几何体）
-│       │   └── utils.ts             # 通用工具函数
-│       └── pages/
-│           ├── Editor.tsx            # 主编辑器页面
-│           ├── Home.tsx              # 首页（未使用）
-│           └── NotFound.tsx          # 404 页面
-├── server/
-│   └── index.ts                      # 静态文件服务（生产模式）
-├── shared/
-│   └── const.ts                      # 共享常量
-├── deploy.sh                         # 一键打包部署脚本
+│       │   ├── useKeyboardShortcuts.ts  # 键盘快捷键
+│       │   ├── useComposition.ts     # 输入法组合状态
+│       │   ├── useMobile.tsx         # 移动端检测
+│       │   └── usePersistFn.ts       # 持久化函数引用
+│       └── lib/
+│           ├── types.ts              # 核心数据模型类型定义
+│           ├── design-utils.ts       # 设计数据操作工具函数
+│           └── utils.ts              # 通用工具（cn 等）
+├── server/                           # 占位目录（纯前端项目，无后端）
+├── shared/                           # 占位目录（共享常量）
+├── dist/public/                      # 构建产物输出目录
 ├── package.json
+├── vite.config.ts
 ├── tsconfig.json
-└── ARCHITECTURE.md
+└── ARCHITECTURE.md                   # 本文档
 ```
+
+### 关键目录说明
+
+| 目录/文件 | 主要功能 |
+| :--- | :--- |
+| `client/src/pages/Home.tsx` | 主设计器页面，组装画布、工具箱、属性面板、3D 预览 |
+| `client/src/components/Canvas.tsx` | SVG 2D 画布渲染引擎，含网格、外框、中梃、玻璃、尺寸标注 |
+| `client/src/components/Preview3D.tsx` | Three.js 3D 实时预览，将 2D 设计数据转换为 3D 几何体 |
+| `client/src/contexts/DesignerContext.tsx` | 全局状态管理中枢（useReducer 模式，20+ 种 Action） |
+| `client/src/lib/types.ts` | 核心领域模型定义（Frame、Cell、Mullion、Sash 等） |
+| `client/src/lib/design-utils.ts` | 设计数据操作函数（创建框架、添加中梃、设置扇等） |
+| `client/src/hooks/useKeyboardShortcuts.ts` | 键盘快捷键绑定（V/F/M/H/S/G/D 切换工具，Ctrl+Z/Y 撤销恢复） |
 
 ## 4. 核心模块与数据流
 
+### 4.1. 模块关系图 (Mermaid)
+
 ```mermaid
 graph TD
-    A[Editor Page] --> B[useEditorStore Hook]
-    A --> C[CanvasRenderer]
-    A --> C3[ThreePreview]
-    A --> D[Toolbar]
-    A --> E[PropertiesPanel]
-    A --> F[TopBar]
-    A --> G[StatusBar]
-    A --> H[QuoteDialog]
-
-    C3 --> W3[window3d.ts]
-    W3 --> |createWindow3D| C3
-    W3 --> |createSceneEnvironment| C3
-    W3 --> |createWallBackground| C3
-
-    B --> I[EditorState]
-    I --> |windows 数组| C
-    I --> |activeTool| D
-    I --> |selectedWindow| E
-
-    J[types.ts] --> |数据模型| B
-    K[window-factory.ts] --> |创建/分割函数| A
-
-    subgraph 数据模型层级
-        L[WindowUnit] --> M[Frame]
-        M --> N[Opening]
-        N --> O[Mullion]
-        N --> P[Sash]
-        N --> Q[childOpenings]
-        Q --> N
+    A[App.tsx<br/>路由 & Provider] --> B[Home.tsx<br/>主设计器页面]
+    
+    B --> C[TopToolbar<br/>顶部工具栏]
+    B --> D[Toolbox<br/>左侧工具箱]
+    B --> E[Canvas<br/>SVG 2D 画布]
+    B --> F[Preview3D<br/>Three.js 3D 预览]
+    B --> G[PropertyPanel<br/>右侧属性面板]
+    
+    H[DesignerContext<br/>全局状态管理] --> C
+    H --> D
+    H --> E
+    H --> F
+    H --> G
+    
+    I[types.ts<br/>领域模型] --> H
+    J[design-utils.ts<br/>操作工具函数] --> H
+    
+    K[useKeyboardShortcuts<br/>快捷键Hook] --> H
+    
+    subgraph 数据模型层
+        I
+        J
     end
-
-    J --> L
+    
+    subgraph 状态管理层
+        H
+    end
+    
+    subgraph 视图层
+        C
+        D
+        E
+        F
+        G
+    end
 ```
 
-### 4.1 数据模型层级
+### 4.2. 主要数据流
 
-门窗数据采用树形嵌套结构：
+**核心数据模型（树形结构）：**
 
-| 层级 | 对象 | 说明 |
-|------|------|------|
-| 1 | `WindowUnit` | 顶层窗口对象，包含尺寸、位置、型材系列 |
-| 2 | `Frame` | 外框，定义形状和型材宽度 |
-| 3 | `Opening` | 分格区域，可递归分割 |
-| 4 | `Mullion` | 中梃/横档，定义分割位置和方向 |
-| 4 | `Sash` | 扇，定义开启类型（14种：固定/内开左右/外开左右/上悬/下悬/内开内倒/推拉/折叠） |
-| 4 | `GlassPane` | 玻璃配置（单层/中空/三玻/夹胶），含厚度参数 |
-| 4 | `Hardware` | 五金件（把手/铰链/锁点/摩擦铰链），含型号和位置 |
-| 4 | `Glass` | 玻璃，定义类型和厚度 |
-
-### 4.2 状态管理
-
-`useEditorStore` 是核心状态管理 Hook，采用 `useState` + `useCallback` 模式：
-
-- **EditorState**: 包含 windows 数组、选中状态、工具状态、视口参数
-- **历史记录**: 使用 `useRef` 维护 undo/redo 栈（最多 50 步）
-- **不可变更新**: 所有状态修改通过浅拷贝实现，深层嵌套对象使用 `JSON.parse(JSON.stringify())` 深拷贝
-
-### 4.3 渲染引擎
-
-**2D 渲染 — `CanvasRenderer`**
-
-使用 HTML5 Canvas 2D API 进行渲染：
-
-- **坐标系**: 1mm = 0.5px（zoom=1 时），支持平移和缩放
-- **渲染顺序**: 网格 → 原点十字 → 外框 → 中梃/横档 → 玻璃/扇 → 尺寸标注 → 标签
-- **工程制图风格**: 框架斜线填充、玻璃交叉线、扇开启方向线、铰链点标记
-- **DPR 适配**: 自动检测设备像素比，确保高清屏清晰渲染
-
-**3D 渲染 — `ThreePreview` + `window3d.ts`**
-
-使用 Three.js 将 2D 数据模型实时转换为 3D 立体模型：
-
-- **模型生成 (`window3d.ts`)**:
-  - `createWindow3D()`: 将 `WindowUnit` 递归转换为 Three.js Group，包含外框、中梃、玻璃、扇、五金件
-  - `createSceneEnvironment()`: 创建场景灯光（环境光 + 方向光 + 补光）、地面、雾效
-  - `createWallBackground()`: 生成墙体背景和窗台，让窗户嵌入墙体展示
-  - 坐标缩放: 1mm → 0.001 Three.js 单位（1 unit = 1m）
-
-- **材质系统**（使用 `MeshStandardMaterial` 以提高 WebGL 兼容性）:
-  - 铝合金框架: `MeshStandardMaterial`（metalness=0.8, roughness=0.3）
-  - 玻璃: `MeshStandardMaterial`（transparent, opacity=0.3, depthWrite=false）
-  - 五金件: `MeshStandardMaterial`（metalness=0.9, roughness=0.2）
-  - 墙体: `MeshStandardMaterial`（粗糙质感）
-
-- **交互功能 (`ThreePreview.tsx`)**:
-  - OrbitControls 轨道控制（拖拽旋转、滚轮缩放、右键平移）
-  - 6 个预设视角（正面/背面/左侧/右侧/俯视/透视）+ 平滑过渡动画
-  - 窗户开启/关闭动画（30° 旋转，ease-out-cubic 缓动）
-  - 墙体显示/隐藏、网格显示/隐藏、明暗模式切换
-  - 多窗口并排展示，自动相机适配
-  - Lazy 加载（`React.lazy`），避免首屏加载 Three.js 体积
-  - WebGL 上下文丢失/恢复事件处理（`webglcontextlost`/`webglcontextrestored`）
-  - WebGL 可用性检测与降级 UI 提示
-  - 渲染降级策略: `powerPreference='default'`, `PCFShadowMap`, 像素比上限 1.5, 阴影贴图 1024×1024
-
-- **扇开启动画**（支持全部14种扇类型）:
-  - 内开左/右、内开内倒左/右: 绕铰链边 Y 轴旋转（pivot group 方式）
-  - 外开左/右: 绕铰链边 Y 轴反向旋转
-  - 上悬: 绕顶边 X 轴旋转
-  - 下悬: 绕底边 X 轴旋转
-  - 推拉左/右: X 轴平移
-  - 折叠左/右: 绕铰链边 Y 轴大角度旋转
-
-- **参数化深度**: 3D 模型的框架深度、扇深度、中梃深度均从 `ProfileSeries` 的 `frameDepth`/`sashDepth`/`mullionDepth` 读取，不再硬编码
-
-**实景照片融合 — `ScenePreview`**
-
-纯前端 Canvas 合成方案，将 3D 门窗模型叠加到用户上传的现场照片中：
-
-- **三步工作流**: 上传照片 → 框选窗洞 → 生成效果图
-- **3D 截图引擎**: 创建离屏 WebGLRenderer（alpha=true 透明背景），使用正交相机正面截取门窗模型
-- **Canvas 合成**: 将门窗截图按框选区域的位置和大小绘制到照片上，添加内阴影、边框阴影和亮度调节
-- **效果调节**: 支持门窗透明度（0.3-1.0）、亮度匹配（0.5-1.5）、阴影融合（0-1.0）三个参数
-- **导出**: 支持下载合成效果图（JPEG 95% 质量）
-- **Lazy 加载**: 使用 `React.lazy` 按需加载，不影响首屏性能
-
-## 5. 核心交互流程
-
-### 5.1 绘制外框
-
-1. 用户按 `R` 切换到绘制工具
-2. 鼠标按下记录起点坐标（世界坐标系）
-3. 拖拽过程中实时显示虚线预览框和尺寸标注
-4. 鼠标释放时，若宽高均 > 100mm，创建 `WindowUnit` 对象
-5. 自动创建 `Frame` → `Opening` 层级结构
-
-### 5.2 分割分格（添加中梃/横档）
-
-1. 用户按 `M`（中梃）或 `T`（横档）切换工具
-2. 点击窗口内的未分割 Opening 区域
-3. 调用 `splitOpening()` 函数，在点击位置创建 Mullion
-4. 原 Opening 标记为 `isSplit=true`，生成两个 `childOpenings`
-5. 子 Opening 可继续递归分割
-
-### 5.3 添加扇
-
-1. 用户按 `S` 切换到添加扇工具
-2. 在右侧面板选择扇类型（固定/左开/右开/上悬/推拉）
-3. 点击未分割的 Opening 区域
-4. 创建 `Sash` 对象并关联到该 Opening
-
-### 5.4 报价生成
-
-1. 点击顶部「报价」按钮打开 `QuoteDialog`
-2. 遍历所有 `WindowUnit`，按型材系列单价 × 面积计算金额
-3. 支持导出 CSV 和打印报价单（生成独立 HTML 页面）
-
-## 6. 设计系统
-
-### 6.1 设计理念
-
-采用 **工业蓝图美学 (Industrial Blueprint)** 风格：
-
-- **主色调**: 深蓝灰背景（oklch 0.16 0.03 260）
-- **强调色**: 琥珀色（oklch 0.78 0.16 75）用于选中、标注、交互反馈
-- **画布**: 浅灰白底 + 工程网格
-- **字体**: JetBrains Mono（数值/尺寸）+ Inter（UI 标签）
-
-### 6.2 布局结构
-
-**桌面端布局 (>= 1024px)**:
 ```
-┌──────────────────────────────────────────────┐
-│  TopBar (h-10): Logo + 菜单 + 快捷键帮助     │
-├──┬───────────────────────────────────┬───────┤
-│  │                                   │       │
-│T │       Canvas 画布区域              │ Props │
-│o │       (ResizeObserver 自适应)      │ Panel │
-│o │                                   │ (w-64)│
-│l │                                   │       │
-│(w│                                   │       │
-│12│                                   │       │
-│) │                                   │       │
-├──┴───────────────────────────────────┴───────┤
-│  StatusBar (h-7): 工具 | 坐标 | 窗口数 | 缩放 │
-└──────────────────────────────────────────────┘
+DesignData
+├── id, windowCode, quantity, remark
+├── color: ColorConfig
+└── frame: Frame
+    ├── width, height, frameWidth, shape
+    └── rootCell: Cell (递归树)
+        ├── rect: { x, y, width, height }
+        ├── sash?: Sash (开启方式)
+        ├── filling: Filling (填充物)
+        ├── glazingBar?: GlazingBar (格条)
+        ├── mullions: Mullion[] (中梃列表)
+        └── children: Cell[] (子区域)
 ```
 
-**移动端/平板布局 (< 1024px)**:
-```
-┌──────────────────────────────┐
-│  MobileTopBar: Logo + 菜单按钮│
-├──────────────────────────────┤
-│                              │
-│     Canvas 画布区域     [+]  │
-│     (全屏, 触摸手势)    [-]  │
-│                        [%]   │
-│                              │
-├──────────────────────────────┤
-│  MobileToolbar (h-16):       │
-│  选择|画框|中梃|横档|加扇|平移|更多│
-└──────────────────────────────┘
-```
+**状态管理流程：**
 
-### 6.3 移动端触摸适配
+1. **用户操作** → 触发 `dispatch(action)` 到 `DesignerContext`
+2. **Reducer 处理** → 根据 Action 类型更新 `DesignerState`（含 `design` + `canvas` + `history`）
+3. **历史快照** → 每次修改设计数据前，自动推入 `history` 栈（支持撤销/恢复）
+4. **视图更新** → React 自动重新渲染受影响的组件（Canvas / Preview3D / PropertyPanel）
 
-| 手势 | 功能 | 实现方式 |
-|------|------|----------|
-| 单指拖拽 | 绘制/移动/操作（取决于当前工具） | `touchstart/move/end` 映射到统一 pointer handler |
-| 双指捏合 | 缩放画布（以捏合中心为焦点） | 计算双指距离比例，实时更新 zoom + pan |
-| 双指平移 | 同时平移画布 | 跟踪双指中点位移 |
-| 单指点击 | 选择/添加组件 | 无移动的 touch 序列识别为 tap |
+**Action 类型一览（20 种）：**
 
-**响应式策略**:
-- `useScreenSize()` Hook 检测 mobile/tablet/desktop 三档
-- `useIsTouch()` Hook 检测触摸设备，避免 mouse/touch 事件重复处理
-- 移动端隐藏左侧 Toolbar 和右侧 PropertiesPanel，改用底部 MobileToolbar 和抽屉式 MobilePropertiesDrawer
-- 画布添加浮动缩放控件（右上角 +/-/% 按钮）
-- 所有触摸按钮最小尺寸 48x48px，符合移动端可访问性标准
-- viewport-fit=cover + safe-area-inset-bottom 适配 iPhone 刘海/底部横条
+| Action | 说明 | 是否记录历史 |
+| :--- | :--- | :--- |
+| `SET_TOOL` | 切换当前工具 | 否 |
+| `SELECT_CELL` | 选中/取消选中 Cell | 否 |
+| `SET_ZOOM` / `SET_PAN` | 画布缩放/平移 | 否 |
+| `CREATE_FRAME` | 创建新外框 | 是 |
+| `ADD_MULLION` | 添加中梃 | 是 |
+| `SET_SASH` | 设置开启方式 | 是 |
+| `UPDATE_MULLION_POSITION` | 拖拽中梃位置 | 否（拖拽结束时记录） |
+| `SET_FRAME_SIZE` | 修改外框尺寸（等比缩放内部） | 是 |
+| `SET_COLOR` | 设置型材颜色 | 是 |
+| `APPLY_TEMPLATE` | 应用预设模板 | 是 |
+| `CLEAR_CANVAS` | 清除画布 | 是 |
+| `UNDO` / `REDO` | 撤销/恢复 | — |
 
-## 7. 预设窗型模板
+### 4.3. 2D 渲染流程
 
-| 模板 ID | 名称 | 默认尺寸 | 结构描述 |
-|---------|------|----------|----------|
-| `fixed` | 固定窗 | 1200×1500 | 单分格 + 固定扇 |
-| `single-casement` | 单开窗 | 800×1400 | 单分格 + 左开扇 |
-| `double-casement` | 双开窗 | 1600×1500 | 竖向中梃分割 + 左开/右开扇 |
-| `three-panel` | 三等分窗 | 2400×1500 | 两道竖向中梃 + 左开/固定/右开 |
-| `sliding` | 推拉窗 | 2000×1500 | 竖向中梃分割 + 左推/右推扇 |
-| `top-hung` | 上悬窗 | 1000×800 | 单分格 + 上悬扇 |
-| `tilt-turn` | 内开内倒 | 800×1400 | 单分格 + 内开内倒扇 |
+Canvas 组件采用 SVG 渲染，分层结构如下（从底到顶）：
 
-## 8. 快捷键
+1. **GridBackground** — 20px 小网格 + 100px 大网格
+2. **CellRenderer** — 玻璃区域填充 + 扇标记（X 形对角线 + 方向箭头）+ 选中高亮
+3. **MullionRenderer** — 中梃型材（含 3D 光影效果）+ 拖拽热区
+4. **FrameRenderer** — 外框四条型材（含高光/暗部模拟 3D 效果）
+5. **DimensionAnnotations** — 红色尺寸标注（总尺寸 + 分段尺寸）
 
-| 快捷键 | 功能 |
-|--------|------|
-| `V` | 选择工具 |
-| `R` | 绘制外框 |
-| `M` | 添加中梃（竖向分割） |
-| `T` | 添加横档（横向分割） |
-| `S` | 添加扇 |
-| `H` | 平移画布 |
-| `3` | 切换 2D/3D 视图 |
-| `4` | 切换实景模式 |
-| `Delete` / `Backspace` | 删除选中窗口 |
-| `Ctrl+Z` | 撤销 |
-| `Ctrl+Shift+Z` | 重做 |
-| 鼠标滚轮 | 缩放（以鼠标位置为中心） |
-| 鼠标中键拖拽 | 平移画布 |
-| 双指捏合 (触摸) | 缩放画布 |
-| 双指拖动 (触摸) | 平移画布 |
-| 单指拖拽 (触摸) | 绘制/移动（取决于工具） |
+### 4.4. 3D 预览流程
 
-## 9. 环境变量
+Preview3D 组件使用 React Three Fiber 将 2D 设计数据转换为 3D 几何体：
 
-本项目为纯前端静态项目，运行时不依赖自定义环境变量。以下为构建系统自动注入的变量：
+- `FrameMesh` — 外框四条 boxGeometry（金属材质，roughness=0.3, metalness=0.6）
+- `GlassMesh` — 玻璃 boxGeometry（物理材质，transmission=0.8, ior=1.5）
+- `MullionMesh` — 中梃递归渲染
+- `SashMesh` — 扇框四条 boxGeometry
+- 场景包含 OrbitControls、ContactShadows、Environment(studio) 等
 
-| 变量名 | 说明 |
-|--------|------|
-| `VITE_ANALYTICS_ENDPOINT` | 分析服务端点 |
-| `VITE_ANALYTICS_WEBSITE_ID` | 分析网站 ID |
-| `VITE_APP_TITLE` | 应用标题 |
+## 5. API 端点 (Endpoints)
 
-## 10. 更新日志
+本项目为纯前端静态应用，**无后端 API 端点**。所有数据操作在浏览器端完成。
+
+## 6. 外部依赖与集成
+
+| 服务/库 | 用途 | 集成方式 |
+| :--- | :--- | :--- |
+| Google Fonts | 字体加载（JetBrains Mono + Noto Sans SC） | CDN link 标签 |
+| Three.js | 3D 渲染引擎 | npm 包 |
+| @react-three/fiber | React 绑定 Three.js | npm 包 |
+| @react-three/drei | Three.js 辅助组件（OrbitControls 等） | npm 包 |
+| Radix UI | 无障碍 UI 原语 | npm 包（通过 shadcn/ui） |
+| Lucide | 图标库 | npm 包 |
+
+## 7. 环境变量
+
+本项目为纯前端静态应用，核心功能不依赖环境变量。以下为构建/部署相关变量：
+
+| 变量名 | 描述 | 示例值 |
+| :--- | :--- | :--- |
+| `BASE_URL` | Vite 构建 base 路径 | `/windows/`（部署时通过 `--base` 参数设置） |
+| `VITE_APP_TITLE` | 应用标题 | `画门窗设计器` |
+
+## 8. 项目进度
+
+> 记录项目从开始到现在已经完成的所有工作，每次新增追加到末尾。
+
+| 完成日期 | 完成的功能/工作 | 说明 |
+| :--- | :--- | :--- |
+| 2026-03-01 | 项目初始化与设计方案 | 确定工业蓝图设计风格，完成 ideas.md 设计方案 |
+| 2026-03-01 | 核心数据模型定义 | 定义 Frame、Cell、Mullion、Sash 等完整类型体系（types.ts） |
+| 2026-03-01 | 设计数据操作工具函数 | 实现 createDefaultFrame、addMullionToCell、setSashOnCell 等（design-utils.ts） |
+| 2026-03-01 | 全局状态管理 | 基于 useReducer 实现 DesignerContext，支持 20 种 Action + 撤销/恢复历史 |
+| 2026-03-01 | SVG 2D 画布渲染引擎 | 实现 Canvas 组件：网格背景、外框型材 3D 效果、玻璃区域、中梃渲染、尺寸标注 |
+| 2026-03-01 | 3D 实时预览 | 基于 Three.js / React Three Fiber 实现 Preview3D，支持旋转/缩放/平移 |
+| 2026-03-01 | 顶部工具栏 | 实现 TopToolbar：5 种预设模板（单扇/两等分/三等分/上下分/田字格）、2D/3D 切换、缩放控制 |
+| 2026-03-01 | 左侧工具箱 | 实现 Toolbox：8 种绘图工具、7 种扇类型选择弹出面板、撤销/恢复/清除按钮 |
+| 2026-03-01 | 右侧属性面板 | 实现 PropertyPanel：基本信息编辑、外框尺寸修改、8 色预设、选中区域属性、开启方式下拉 |
+| 2026-03-01 | 键盘快捷键 | 实现 useKeyboardShortcuts：V/F/M/H/S/G/D 工具切换、Ctrl+Z/Y 撤销恢复、Escape 取消 |
+| 2026-03-01 | 中梃拖拽功能 | 支持鼠标拖拽调整中梃位置，实时更新画布 |
+| 2026-03-01 | 玻璃区域点击选中 | 修复 select 工具模式下的点击选中逻辑，支持蓝色高亮反馈 |
+| 2026-03-01 | 画布缩放与平移 | 滚轮缩放 + 中键拖拽平移，画布自适应容器大小 |
+| 2026-03-01 | 部署到服务器 | 构建产物部署到 Nginx 服务器 http://8.140.238.44/windows/，修复 base 路径和路由问题 |
+
+## 9. 更新日志
 
 | 日期 | 变更类型 | 描述 |
-|------|----------|------|
+| :--- | :--- | :--- |
 | 2026-03-01 | 初始化 | 创建项目架构文档 |
-| 2026-03-01 | 修复缺陷 | 修复 3D 预览 WebGL 上下文丢失导致黑屏问题：将 MeshPhysicalMaterial 降级为 MeshStandardMaterial，修复 PCFSoftShadowMap 弃用警告，添加 WebGL 上下文丢失/恢复机制，降低渲染资源消耗 |
-| 2026-03-01 | 修复缺陷 | 修复 2D 与 3D 中梃位置不对应的 bug：createMullionMesh 中 vertical 中梃 Y 位置和 horizontal 中梃 X 位置缺少 rect 偏移量 |
-| 2026-03-01 | 新增功能 | 添加 deploy.sh 一键打包部署脚本，支持自动构建、上传、服务器部署 |
-| 2026-03-01 | 重构 | 数据模型 v2.0：扩展 SashType 从6种到14种（新增外开/下悬/内开内倒/折叠）；新增 GlassPane、Hardware 接口；ProfileSeries 新增 frameDepth/sashDepth/mullionDepth 深度参数；新增 CONSTRAINTS 边界约束常量 |
-| 2026-03-01 | 重构 | window-factory.ts v2.0：新增 resizeWindowUnit（递归按比例更新尺寸）、deleteMullionFromOpening（删除中梃合并分格）、deleteSashFromOpening（删除扇）、addSashToOpening、addMullionToOpening、validateMullionPosition（边界校验）、updateMullionInOpenings（中梃拖拽更新）等函数 |
-| 2026-03-01 | 增强 | CanvasRenderer 2D 渲染器：支持全部14种扇类型的2D图例渲染（含开启方向线、铰链标记、推拉箭头、折叠锯齿线等）；使用 ProfileSeries 的 mullionWidth 替代硬编码 |
-| 2026-03-01 | 增强 | window3d.ts 3D 渲染器 v2.0：支持全部14种扇类型的3D开启动画；使用 ProfileSeries 的 depth 参数替代硬编码；五金件位置根据扇类型精确放置 |
-| 2026-03-01 | 增强 | Editor.tsx 交互增强：实现中梃拖拽（鼠标拖动实时更新位置）、删除中梃/扇（Delete键和工具栏按钮）、边界校验提示 |
-| 2026-03-01 | 增强 | PropertiesPanel 属性面板：扩展扇类型选择器支持全部14种类型；新增尺寸修改联动（修改宽高后内部结构按比例更新） |
-| 2026-03-01 | 新增功能 | 实景照片融合功能：ScenePreview 组件实现上传照片→框选窗洞→3D门窗叠加→效果调节→下载效果图；Editor 新增实景视图模式（2D/3D/实景三模式切换）；TopBar 新增实景按钮；快捷键4切换实景模式 |
+| 2026-03-01 | 新增功能 | 完成画门窗设计器核心功能：2D 画布、3D 预览、工具箱、属性面板、模板系统 |
+| 2026-03-01 | 修复缺陷 | 修复玻璃区域点击选中逻辑、Nginx 重复 location 配置、Vite base 路径问题 |
+| 2026-03-01 | 配置变更 | 部署到服务器 8.140.238.44/windows/，配置 Wouter 路由 base 适配子路径 |
 
-## 11. 项目进度
+*变更类型：`新增功能` / `优化重构` / `修复缺陷` / `配置变更` / `文档更新` / `依赖升级` / `初始化`*
 
-| 完成日期 | 完成的功能/工作 | 简要说明 |
-|----------|----------------|----------|
-| 2026-03-01 | 2D 绘图编辑器 | Canvas 2D 渲染引擎，支持外框绘制、中梃/横档分割、扇配置 |
-| 2026-03-01 | 预设窗型模板 | 6 种预设窗型（固定窗/单开窗/双开窗/三等分窗/推拉窗/上悬窗） |
-| 2026-03-01 | 属性面板 | 右侧属性面板，支持窗口名称、尺寸、位置编辑 |
-| 2026-03-01 | 报价功能 | 报价单生成、CSV 导出、打印 |
-| 2026-03-01 | 3D 预览 | Three.js 3D 实时预览，支持多视角、开启动画、墙体背景 |
-| 2026-03-01 | 移动端适配 | 触摸手势、响应式布局、移动端工具栏和属性抽屉 |
-| 2026-03-01 | 3D 预览 WebGL 兼容性修复 | 修复 WebGL 上下文丢失黑屏问题，材质降级，添加恢复机制 |
-| 2026-03-01 | 2D-3D 中梃位置对齐修复 | 修复 3D 中梃位置计算缺少 opening.rect 偏移量的 bug，确保 2D 与 3D 完全对应 |
-| 2026-03-01 | 一键部署脚本 | deploy.sh 支持自动打包、压缩、SCP 上传、服务器解压部署、Nginx 重载 |
-| 2026-03-01 | 数据模型 v2.0 重构 | 扩展 SashType 14种、新增 GlassPane/Hardware/CONSTRAINTS、ProfileSeries 新增 depth 参数 |
-| 2026-03-01 | 交互功能增强 | 中梃拖拽、删除中梃/扇、边界校验、尺寸联动、全部扇类型的2D/3D渲染 |
-| 2026-03-01 | 画图模块可执行规格书 | 完成 docs/画图模块_可执行规格书.md，定义20个功能点（P0/P1/P2）、数据模型v2.0、交互规则、边界约束 |
-| 2026-03-01 | 实景照片融合 | ScenePreview 组件：上传现场照片→框选窗洞→3D门窗正面截图叠加→效果调节（透明度/亮度/阴影）→下载效果图 |
+## 10. 快速开发规划（团队视角）
 
-## 12. 未来扩展方向
+> 以下为软件负责人视角的团队开发规划，假设有一个 3-5 人小团队。
 
-- **后端集成**: 升级为 `web-db-user` 全栈项目，支持用户登录、项目云端存储
-- **BOM 算料**: 根据窗型结构自动计算型材用量、玻璃面积、五金件清单
-- **型材优化**: 实现一维下料优化算法，最小化型材浪费
-- ~~**3D 预览**: 集成 Three.js 实现窗户 3D 实时预览~~ ✅ 已完成
-- ~~**实景照片融合**: 上传现场照片，将门窗设计叠加到照片中~~ ✅ 已完成（Phase 1 纯前端合成）
-- **AI 实景渲染增强**: 集成 AI 图像生成 API（如 Replicate），对合成图进行光影融合优化（Phase 2 待实现）
-- **PDF 导出**: 生成包含设计图纸和报价的完整 PDF 文档
-- **设备对接**: 支持导出 CNC 加工数据
+### 10.1. 当前状态评估
+
+项目已完成 **MVP 阶段**（最小可行产品），核心的画图功能已可用。但距离生产级产品仍有较大差距，主要缺口集中在以下方面：
+
+| 维度 | 当前状态 | 目标状态 |
+| :--- | :--- | :--- |
+| 数据持久化 | 无（刷新即丢失） | 本地存储 + 云端同步 |
+| 算料功能 | 无 | 自动计算型材/玻璃/五金用量 |
+| 导出能力 | 无 | PDF/图片/DXF 导出 |
+| 型材系统 | 硬编码 60mm | 可配置型材库 |
+| 五金配件 | 无 | 把手、铰链、锁点等配件系统 |
+| 报价功能 | 无 | 基于算料结果自动报价 |
+| 多窗管理 | 单窗设计 | 项目级多窗管理 |
+
+### 10.2. Sprint 规划（按优先级排序）
+
+**Sprint 1（1-2 周）— 数据持久化 + 导出**
+
+| 任务 | 负责人 | 工时 |
+| :--- | :--- | :--- |
+| localStorage 自动保存/恢复设计数据 | 前端 A | 1d |
+| 导出为 PNG/SVG 图片 | 前端 A | 2d |
+| 导出为 PDF（含尺寸标注） | 前端 B | 2d |
+| 多窗设计列表管理（新建/复制/删除） | 前端 B | 2d |
+
+**Sprint 2（2-3 周）— 算料引擎**
+
+| 任务 | 负责人 | 工时 |
+| :--- | :--- | :--- |
+| 型材库数据结构设计（系列/规格/截面） | 全栈 | 2d |
+| 算料引擎核心（遍历 Cell 树计算型材切割长度） | 全栈 | 3d |
+| 玻璃面积计算（考虑扇框扣减） | 前端 A | 1d |
+| 五金配件自动匹配（基于扇类型和尺寸） | 前端 B | 2d |
+| 材料清单 UI（表格展示 + 汇总） | 前端 A | 2d |
+
+**Sprint 3（2 周）— 型材系统 + 五金配件**
+
+| 任务 | 负责人 | 工时 |
+| :--- | :--- | :--- |
+| 型材系列管理 UI（50/55/60/65/70 系列） | 前端 A | 2d |
+| 型材截面参数配置 | 全栈 | 2d |
+| 五金配件库（把手、铰链、锁点、滑轮等） | 前端 B | 3d |
+| 配件在 2D/3D 中的可视化标记 | 前端 A | 2d |
+
+**Sprint 4（2 周）— 报价 + 后端**
+
+| 任务 | 负责人 | 工时 |
+| :--- | :--- | :--- |
+| 升级为全栈项目（web-db-user） | 全栈 | 1d |
+| 用户认证（登录/注册） | 全栈 | 2d |
+| 设计数据云端存储 | 全栈 | 2d |
+| 报价模块（单价配置 + 自动计算） | 前端 B | 3d |
+| 报价单 PDF 导出 | 前端 A | 2d |
+
+### 10.3. 技术债务清单
+
+| 优先级 | 问题 | 建议方案 |
+| :--- | :--- | :--- |
+| 高 | 构建产物 1.7MB 单 chunk | 使用 dynamic import 拆分 Three.js 相关代码 |
+| 高 | 缩放快捷键 +/- 未正确实现 | 修复 useKeyboardShortcuts 中的 SET_ZOOM 逻辑 |
+| 中 | Delete/Backspace 删除功能未实现 | 实现删除选中中梃/扇的 Action |
+| 中 | 格条(glazing_bar)和填充物(filling)工具未实现 | 补充对应的 UI 和 Action |
+| 中 | 标线(dimension)工具未实现 | 补充自定义标注线功能 |
+| 低 | 3D 预览中扇的开启动画 | 添加扇旋转动画效果 |
+| 低 | 移动端适配 | 触摸事件支持 + 响应式布局 |
+
+---
+
+*此文档旨在提供项目架构的快照，具体实现细节请参考源代码。*
