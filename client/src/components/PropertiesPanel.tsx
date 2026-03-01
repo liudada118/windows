@@ -1,10 +1,12 @@
-// WindoorDesigner - 右侧属性面板
+// WindoorDesigner - 右侧属性面板 v2.0
 // 工业蓝图美学: 紧凑的属性编辑面板
+// 基于《画图模块可执行规格书》重构
 
 import { useState } from 'react';
 import type { WindowUnit, ProfileSeries, SashType } from '@/lib/types';
-import { DEFAULT_PROFILE_SERIES } from '@/lib/types';
+import { DEFAULT_PROFILE_SERIES, CONSTRAINTS } from '@/lib/types';
 import { WINDOW_TEMPLATES } from '@/lib/window-factory';
+import { resizeWindowUnit } from '@/lib/window-factory';
 import { ChevronDown, ChevronRight, Package, Layers, Settings2 } from 'lucide-react';
 
 interface PropertiesPanelProps {
@@ -19,11 +21,18 @@ interface PropertiesPanelProps {
 
 const SASH_TYPES: { id: SashType; name: string; icon: string }[] = [
   { id: 'fixed', name: '固定', icon: '⬜' },
-  { id: 'casement-left', name: '左开', icon: '◧' },
-  { id: 'casement-right', name: '右开', icon: '◨' },
+  { id: 'casement-left', name: '内开左', icon: '◧' },
+  { id: 'casement-right', name: '内开右', icon: '◨' },
+  { id: 'casement-out-left', name: '外开左', icon: '◧' },
+  { id: 'casement-out-right', name: '外开右', icon: '◨' },
   { id: 'casement-top', name: '上悬', icon: '⬒' },
+  { id: 'casement-bottom', name: '下悬', icon: '⬓' },
+  { id: 'tilt-turn-left', name: '内倒左', icon: '⊿' },
+  { id: 'tilt-turn-right', name: '内倒右', icon: '⊿' },
   { id: 'sliding-left', name: '左推', icon: '⇐' },
   { id: 'sliding-right', name: '右推', icon: '⇒' },
+  { id: 'folding-left', name: '折叠左', icon: '⋘' },
+  { id: 'folding-right', name: '折叠右', icon: '⋙' },
 ];
 
 function SectionHeader({ title, icon, isOpen, onClick }: { title: string; icon: React.ReactNode; isOpen: boolean; onClick: () => void }) {
@@ -52,6 +61,26 @@ export default function PropertiesPanel({
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(true);
 
+  // v2.0: 修改宽高时联动内部结构
+  const handleResize = (dimension: 'width' | 'height', value: number) => {
+    if (!selectedWindow) return;
+    const clampedValue = Math.max(
+      dimension === 'width' ? CONSTRAINTS.MIN_WINDOW_WIDTH : CONSTRAINTS.MIN_WINDOW_HEIGHT,
+      Math.min(
+        dimension === 'width' ? CONSTRAINTS.MAX_WINDOW_WIDTH : CONSTRAINTS.MAX_WINDOW_HEIGHT,
+        value
+      )
+    );
+    const newWidth = dimension === 'width' ? clampedValue : selectedWindow.width;
+    const newHeight = dimension === 'height' ? clampedValue : selectedWindow.height;
+    const resized = resizeWindowUnit(selectedWindow, newWidth, newHeight);
+    onUpdateWindow(selectedWindow.id, {
+      width: resized.width,
+      height: resized.height,
+      frame: resized.frame,
+    });
+  };
+
   return (
     <div className="w-64 bg-[oklch(0.17_0.028_260)] border-l border-[oklch(0.28_0.035_260)] flex flex-col overflow-y-auto">
       {/* Templates Section */}
@@ -78,7 +107,6 @@ export default function PropertiesPanel({
         </div>
       )}
 
-      {/* Divider */}
       <div className="h-px bg-[oklch(0.28_0.035_260)]" />
 
       {/* Sash Type Selection */}
@@ -126,7 +154,6 @@ export default function PropertiesPanel({
         </div>
       )}
 
-      {/* Divider */}
       <div className="h-px bg-[oklch(0.28_0.035_260)]" />
 
       {/* Properties Section */}
@@ -151,16 +178,18 @@ export default function PropertiesPanel({
                 />
               </div>
 
-              {/* Width & Height */}
+              {/* Width & Height - v2.0: 联动内部结构 */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5 block">宽度 (mm)</label>
                   <input
                     type="number"
                     value={selectedWindow.width}
+                    min={CONSTRAINTS.MIN_WINDOW_WIDTH}
+                    max={CONSTRAINTS.MAX_WINDOW_WIDTH}
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
-                      if (val > 0) onUpdateWindow(selectedWindow.id, { width: val });
+                      if (!isNaN(val) && val > 0) handleResize('width', val);
                     }}
                     className="w-full bg-[oklch(0.20_0.035_260)] border border-[oklch(0.30_0.04_260)] rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                   />
@@ -170,9 +199,11 @@ export default function PropertiesPanel({
                   <input
                     type="number"
                     value={selectedWindow.height}
+                    min={CONSTRAINTS.MIN_WINDOW_HEIGHT}
+                    max={CONSTRAINTS.MAX_WINDOW_HEIGHT}
                     onChange={(e) => {
                       const val = parseInt(e.target.value);
-                      if (val > 0) onUpdateWindow(selectedWindow.id, { height: val });
+                      if (!isNaN(val) && val > 0) handleResize('height', val);
                     }}
                     className="w-full bg-[oklch(0.20_0.035_260)] border border-[oklch(0.30_0.04_260)] rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                   />
@@ -198,6 +229,13 @@ export default function PropertiesPanel({
                 </p>
                 <p className="text-[10px] text-slate-500 mt-0.5">
                   面积: <span className="text-slate-300 font-mono">{((selectedWindow.width * selectedWindow.height) / 1000000).toFixed(2)} m²</span>
+                </p>
+              </div>
+
+              {/* 尺寸约束提示 */}
+              <div className="mt-1 p-1.5 rounded bg-[oklch(0.12_0.02_260)] border border-[oklch(0.22_0.03_260)]">
+                <p className="text-[9px] text-slate-600">
+                  宽: {CONSTRAINTS.MIN_WINDOW_WIDTH}-{CONSTRAINTS.MAX_WINDOW_WIDTH}mm | 高: {CONSTRAINTS.MIN_WINDOW_HEIGHT}-{CONSTRAINTS.MAX_WINDOW_HEIGHT}mm
                 </p>
               </div>
             </div>

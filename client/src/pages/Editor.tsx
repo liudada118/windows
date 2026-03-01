@@ -1,7 +1,8 @@
-// WindoorDesigner - 主编辑器页面
+// WindoorDesigner - 主编辑器页面 v2.0
 // 工业蓝图美学: 三栏式布局 - 左工具栏 + 中画布 + 右属性面板
 // 移动端适配: 底部工具栏 + 触摸手势 + 抽屉面板
 // 3D预览: Three.js集成，支持2D/3D一键切换
+// v2.0: 交互式添加中梃/扇、中梃拖拽、删除功能、边界校验
 
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { useEditorStore } from '@/hooks/useEditorStore';
@@ -12,14 +13,26 @@ import StatusBar from '@/components/StatusBar';
 import TopBar from '@/components/TopBar';
 import MobileToolbar from '@/components/MobileToolbar';
 import MobilePropertiesDrawer from '@/components/MobilePropertiesDrawer';
-import { WINDOW_TEMPLATES, createWindowUnit, splitOpening, findOpeningAtPoint, findMullionAtPoint, createSash } from '@/lib/window-factory';
-import type { ToolType, WindowUnit, Opening } from '@/lib/types';
+import {
+  WINDOW_TEMPLATES,
+  createWindowUnit,
+  splitOpening,
+  findOpeningAtPoint,
+  findMullionAtPoint,
+  createSash,
+  updateMullionInOpenings,
+  deleteMullionFromOpening,
+  deleteSashFromOpening,
+  validateMullionPosition,
+  resizeWindowUnit,
+} from '@/lib/window-factory';
+import type { ToolType, WindowUnit, Opening, Rect } from '@/lib/types';
+import { CONSTRAINTS } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { Menu, Box, PenTool, Loader2 } from 'lucide-react';
 
-// Lazy load ThreePreview for code splitting
 const ThreePreview = lazy(() => import('@/components/ThreePreview'));
 
 const MM_TO_PX = 0.5;
@@ -61,12 +74,28 @@ export default function Editor() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
 
+  // v2.0: 中梃拖拽状态
+  const [isDraggingMullion, setIsDraggingMullion] = useState(false);
+  const [draggingMullionInfo, setDraggingMullionInfo] = useState<{
+    mullionId: string;
+    windowId: string;
+    type: 'vertical' | 'horizontal';
+  } | null>(null);
+
+  // v2.0: 中梃预览线
+  const [mullionPreview, setMullionPreview] = useState<{
+    type: 'vertical' | 'horizontal';
+    position: number;
+    windowId: string;
+    openingRect: Rect;
+  } | null>(null);
+
   // Responsive
   const isTouch = useIsTouch();
   const screenSize = useScreenSize();
   const isMobileLayout = screenSize === 'mobile' || screenSize === 'tablet';
 
-  // Touch state refs (avoid re-renders during gestures)
+  // Touch state refs
   const touchRef = useRef({
     isPinching: false,
     initialDistance: 0,
@@ -84,11 +113,10 @@ export default function Editor() {
     longPressTimer: null as ReturnType<typeof setTimeout> | null,
   });
 
-  // Resize observer for canvas container
+  // Resize observer
   useEffect(() => {
     const container = canvasContainerRef.current;
     if (!container) return;
-
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setCanvasSize({
@@ -101,7 +129,6 @@ export default function Editor() {
     return () => observer.disconnect();
   }, []);
 
-  // Screen to world coordinates
   const screenToWorld = useCallback((sx: number, sy: number) => {
     return {
       x: (sx - state.panX) / (MM_TO_PX * state.zoom),
@@ -109,14 +136,12 @@ export default function Editor() {
     };
   }, [state.panX, state.panY, state.zoom]);
 
-  // Snap to grid
   const snapValue = useCallback((val: number) => {
     if (!state.snapToGrid) return val;
     const gridMM = state.gridSize;
     return Math.round(val / gridMM) * gridMM;
   }, [state.snapToGrid, state.gridSize]);
 
-  // Find window at screen position
   const findWindowAtScreen = useCallback((sx: number, sy: number): WindowUnit | null => {
     const world = screenToWorld(sx, sy);
     for (let i = state.windows.length - 1; i >= 0; i--) {
@@ -147,6 +172,24 @@ export default function Editor() {
       case 'select': {
         const win = findWindowAtScreen(sx, sy);
         if (win) {
+          const localX = world.x - win.posX;
+          const localY = world.y - win.posY;
+
+          // v2.0: 检查是否点击了中梃（用于拖拽）
+          const mullionHit = findMullionAtPoint(win.frame.openings, localX, localY, 8);
+          if (mullionHit) {
+            pushHistory();
+            setIsDraggingMullion(true);
+            setDraggingMullionInfo({
+              mullionId: mullionHit.mullion.id,
+              windowId: win.id,
+              type: mullionHit.mullion.type,
+            });
+            selectWindow(win.id);
+            selectElement(mullionHit.mullion.id, 'mullion');
+            return;
+          }
+
           selectWindow(win.id);
           setIsDraggingWindow(true);
           setDragOffset({
@@ -178,12 +221,23 @@ export default function Editor() {
           return;
         }
         if (opening.isSplit) return;
+        if (opening.sash) {
+          toast.error('该分格已有扇，请先删除扇再添加中梃');
+          return;
+        }
 
-        pushHistory();
         const type = state.activeTool === 'add-mullion-v' ? 'vertical' : 'horizontal';
         const position = type === 'vertical' ? snapValue(localX) : snapValue(localY);
         const mullionWidth = state.activeProfileSeries.mullionWidth;
 
+        // v2.0: 边界校验
+        const validation = validateMullionPosition(opening, type, position, mullionWidth);
+        if (!validation.valid) {
+          toast.error(validation.reason || '中梃位置无效');
+          return;
+        }
+
+        pushHistory();
         const newFrame = JSON.parse(JSON.stringify(win.frame));
         const updateOpeningInTree = (openings: Opening[]): Opening[] => {
           return openings.map(o => {
@@ -221,7 +275,7 @@ export default function Editor() {
         const addSashToTree = (openings: Opening[]): Opening[] => {
           return openings.map(o => {
             if (o.id === opening.id) {
-              return { ...o, sash: createSash(state.activeSashType, o.rect) };
+              return { ...o, sash: createSash(state.activeSashType, o.rect, state.activeProfileSeries.sashWidth) };
             }
             if (o.childOpenings.length > 0) {
               return { ...o, childOpenings: addSashToTree(o.childOpenings) };
@@ -235,7 +289,7 @@ export default function Editor() {
         break;
       }
     }
-  }, [state, screenToWorld, snapValue, findWindowAtScreen, selectWindow, pushHistory, updateWindow]);
+  }, [state, screenToWorld, snapValue, findWindowAtScreen, selectWindow, selectElement, pushHistory, updateWindow]);
 
   const handlePointerMove = useCallback((sx: number, sy: number) => {
     const world = screenToWorld(sx, sy);
@@ -246,17 +300,65 @@ export default function Editor() {
       return;
     }
 
+    // v2.0: 中梃拖拽
+    if (isDraggingMullion && draggingMullionInfo) {
+      const win = state.windows.find(w => w.id === draggingMullionInfo.windowId);
+      if (!win) return;
+      const localX = world.x - win.posX;
+      const localY = world.y - win.posY;
+      const newPosition = draggingMullionInfo.type === 'vertical' ? snapValue(localX) : snapValue(localY);
+      const mullionWidth = state.activeProfileSeries.mullionWidth;
+
+      const newFrame = JSON.parse(JSON.stringify(win.frame));
+      newFrame.openings = updateMullionInOpenings(newFrame.openings, draggingMullionInfo.mullionId, newPosition, mullionWidth);
+      updateWindow(win.id, { frame: newFrame });
+      return;
+    }
+
     if (isDraggingWindow && state.selectedWindowId) {
       const newX = snapValue(world.x - dragOffset.x);
       const newY = snapValue(world.y - dragOffset.y);
       updateWindow(state.selectedWindowId, { posX: newX, posY: newY });
       return;
     }
-  }, [screenToWorld, isPanning, isDraggingWindow, state.selectedWindowId, panStart, dragOffset, snapValue, setPan, updateWindow]);
+
+    // v2.0: 中梃预览线
+    if (state.activeTool === 'add-mullion-v' || state.activeTool === 'add-mullion-h') {
+      const win = findWindowAtScreen(sx, sy);
+      if (win) {
+        const localX = world.x - win.posX;
+        const localY = world.y - win.posY;
+        const opening = findOpeningAtPoint(win.frame.openings, localX, localY);
+        if (opening && !opening.isSplit && !opening.sash) {
+          const type = state.activeTool === 'add-mullion-v' ? 'vertical' : 'horizontal';
+          const position = type === 'vertical' ? snapValue(localX) : snapValue(localY);
+          setMullionPreview({
+            type,
+            position,
+            windowId: win.id,
+            openingRect: opening.rect,
+          });
+        } else {
+          setMullionPreview(null);
+        }
+      } else {
+        setMullionPreview(null);
+      }
+    } else {
+      setMullionPreview(null);
+    }
+  }, [screenToWorld, isPanning, isDraggingMullion, isDraggingWindow, draggingMullionInfo, state, panStart, dragOffset, snapValue, setPan, updateWindow, findWindowAtScreen]);
 
   const handlePointerUp = useCallback((sx: number, sy: number) => {
     if (isPanning) {
       setIsPanning(false);
+      return;
+    }
+
+    // v2.0: 结束中梃拖拽
+    if (isDraggingMullion) {
+      setIsDraggingMullion(false);
+      setDraggingMullionInfo(null);
       return;
     }
 
@@ -273,24 +375,26 @@ export default function Editor() {
       const width = Math.abs(endX - drawStart.x);
       const height = Math.abs(endY - drawStart.y);
 
-      if (width > 100 && height > 100) {
+      if (width >= CONSTRAINTS.MIN_WINDOW_WIDTH && height >= CONSTRAINTS.MIN_WINDOW_HEIGHT) {
+        const clampedWidth = Math.min(width, CONSTRAINTS.MAX_WINDOW_WIDTH);
+        const clampedHeight = Math.min(height, CONSTRAINTS.MAX_WINDOW_HEIGHT);
         const posX = Math.min(drawStart.x, endX);
         const posY = Math.min(drawStart.y, endY);
         const newWin = createWindowUnit(
-          Math.round(width),
-          Math.round(height),
+          Math.round(clampedWidth),
+          Math.round(clampedHeight),
           Math.round(posX),
           Math.round(posY),
           state.activeProfileSeries,
         );
         addWindow(newWin);
-        toast.success(`已创建窗口 (${Math.round(width)}×${Math.round(height)}mm)`);
+        toast.success(`已创建窗口 (${Math.round(clampedWidth)}×${Math.round(clampedHeight)}mm)`);
       } else if (width > 10 || height > 10) {
-        toast.error('窗口尺寸太小（最小100×100mm）');
+        toast.error(`窗口尺寸太小（最小${CONSTRAINTS.MIN_WINDOW_WIDTH}×${CONSTRAINTS.MIN_WINDOW_HEIGHT}mm）`);
       }
       setIsDrawing(false);
     }
-  }, [isDrawing, isPanning, isDraggingWindow, state.activeTool, state.activeProfileSeries, drawStart, screenToWorld, snapValue, addWindow]);
+  }, [isDrawing, isPanning, isDraggingWindow, isDraggingMullion, state.activeTool, state.activeProfileSeries, drawStart, screenToWorld, snapValue, addWindow]);
 
   // ===== Mouse handlers =====
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -354,6 +458,7 @@ export default function Editor() {
     } else if (e.touches.length === 2) {
       setIsDrawing(false);
       setIsDraggingWindow(false);
+      setIsDraggingMullion(false);
       setIsPanning(false);
 
       if (tr.longPressTimer) { clearTimeout(tr.longPressTimer); tr.longPressTimer = null; }
@@ -472,6 +577,38 @@ export default function Editor() {
     });
   }, [state.windows.length]);
 
+  // v2.0: 删除选中的元素（中梃或扇）
+  const handleDeleteSelected = useCallback(() => {
+    if (state.selectedElementId && state.selectedWindowId) {
+      const win = state.windows.find(w => w.id === state.selectedWindowId);
+      if (!win) return;
+
+      pushHistory();
+      const newFrame = JSON.parse(JSON.stringify(win.frame));
+
+      if (state.selectedElementType === 'mullion') {
+        newFrame.openings = deleteMullionFromOpening(newFrame.openings, state.selectedElementId);
+        updateWindow(win.id, { frame: newFrame });
+        selectElement(null, null);
+        toast.success('已删除中梃（子分格已合并）');
+        return;
+      }
+
+      if (state.selectedElementType === 'sash') {
+        newFrame.openings = deleteSashFromOpening(newFrame.openings, state.selectedElementId);
+        updateWindow(win.id, { frame: newFrame });
+        selectElement(null, null);
+        toast.success('已删除扇');
+        return;
+      }
+    }
+
+    if (state.selectedWindowId) {
+      removeWindow(state.selectedWindowId);
+      toast.info('已删除窗口');
+    }
+  }, [state, pushHistory, updateWindow, removeWindow, selectElement]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -494,16 +631,13 @@ export default function Editor() {
         case '3': toggleViewMode(); break;
         case 'delete':
         case 'backspace':
-          if (state.selectedWindowId) {
-            removeWindow(state.selectedWindowId);
-            toast.info('已删除窗口');
-          }
+          handleDeleteSelected();
           break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.selectedWindowId, undo, redo, setTool, removeWindow, toggleViewMode]);
+  }, [handleDeleteSelected, undo, redo, setTool, toggleViewMode]);
 
   // Add template
   const handleAddTemplate = useCallback((templateId: string) => {
@@ -545,10 +679,11 @@ export default function Editor() {
     toast.success('已导出设计文件');
   }, [state.windows]);
 
-  // Cursor style based on tool
+  // Cursor style
   const getCursor = () => {
     if (isTouch) return 'default';
     if (isPanning) return 'grabbing';
+    if (isDraggingMullion) return draggingMullionInfo?.type === 'vertical' ? 'col-resize' : 'row-resize';
     switch (state.activeTool) {
       case 'select': return isDraggingWindow ? 'grabbing' : 'default';
       case 'draw-frame': return 'crosshair';
@@ -568,7 +703,6 @@ export default function Editor() {
           <span className="text-sm font-semibold text-slate-200 tracking-tight">WindoorDesigner</span>
           <span className="text-[9px] text-amber-500/70 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded">BETA</span>
 
-          {/* Mobile 2D/3D toggle */}
           <div className="flex items-center bg-[oklch(0.17_0.028_260)] rounded-lg p-0.5 border border-[oklch(0.25_0.035_260)]">
             <button
               onClick={() => viewMode !== '2d' && toggleViewMode()}
@@ -628,12 +762,7 @@ export default function Editor() {
             onToggleDimensions={toggleDimensions}
             snapToGrid={state.snapToGrid}
             onToggleSnap={toggleSnapToGrid}
-            onDeleteSelected={() => {
-              if (state.selectedWindowId) {
-                removeWindow(state.selectedWindowId);
-                toast.info('已删除窗口');
-              }
-            }}
+            onDeleteSelected={handleDeleteSelected}
           />
         )}
 
@@ -662,6 +791,7 @@ export default function Editor() {
               showDimensions={state.showDimensions}
               width={canvasSize.width}
               height={canvasSize.height}
+              mullionPreview={mullionPreview}
             />
 
             {/* Drawing preview overlay */}
@@ -681,7 +811,7 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Empty state hint - responsive */}
+            {/* Empty state hint */}
             {state.windows.length === 0 && !isDrawing && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center px-6">
@@ -775,12 +905,7 @@ export default function Editor() {
             onToggleDimensions={toggleDimensions}
             snapToGrid={state.snapToGrid}
             onToggleSnap={toggleSnapToGrid}
-            onDeleteSelected={() => {
-              if (state.selectedWindowId) {
-                removeWindow(state.selectedWindowId);
-                toast.info('已删除窗口');
-              }
-            }}
+            onDeleteSelected={handleDeleteSelected}
             onZoomIn={() => setZoom(state.zoom * 1.2)}
             onZoomOut={() => setZoom(state.zoom / 1.2)}
             onZoomReset={() => { setZoom(1); setPan(0, 0); }}

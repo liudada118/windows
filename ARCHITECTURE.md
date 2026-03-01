@@ -119,7 +119,9 @@ graph TD
 | 2 | `Frame` | 外框，定义形状和型材宽度 |
 | 3 | `Opening` | 分格区域，可递归分割 |
 | 4 | `Mullion` | 中梃/横档，定义分割位置和方向 |
-| 4 | `Sash` | 扇，定义开启类型（固定/平开/推拉/上悬） |
+| 4 | `Sash` | 扇，定义开启类型（14种：固定/内开左右/外开左右/上悬/下悬/内开内倒/推拉/折叠） |
+| 4 | `GlassPane` | 玻璃配置（单层/中空/三玻/夹胶），含厚度参数 |
+| 4 | `Hardware` | 五金件（把手/铰链/锁点/摩擦铰链），含型号和位置 |
 | 4 | `Glass` | 玻璃，定义类型和厚度 |
 
 ### 4.2 状态管理
@@ -168,10 +170,15 @@ graph TD
   - WebGL 可用性检测与降级 UI 提示
   - 渲染降级策略: `powerPreference='default'`, `PCFShadowMap`, 像素比上限 1.5, 阴影贴图 1024×1024
 
-- **扇开启动画**:
-  - 左开/右开: 绕铰链边 Y 轴旋转（pivot group 方式）
+- **扇开启动画**（支持全部14种扇类型）:
+  - 内开左/右、内开内倒左/右: 绕铰链边 Y 轴旋转（pivot group 方式）
+  - 外开左/右: 绕铰链边 Y 轴反向旋转
   - 上悬: 绕顶边 X 轴旋转
-  - 推拉: X 轴平移
+  - 下悬: 绕底边 X 轴旋转
+  - 推拉左/右: X 轴平移
+  - 折叠左/右: 绕铰链边 Y 轴大角度旋转
+
+- **参数化深度**: 3D 模型的框架深度、扇深度、中梃深度均从 `ProfileSeries` 的 `frameDepth`/`sashDepth`/`mullionDepth` 读取，不再硬编码
 
 ## 5. 核心交互流程
 
@@ -278,6 +285,7 @@ graph TD
 | `three-panel` | 三等分窗 | 2400×1500 | 两道竖向中梃 + 左开/固定/右开 |
 | `sliding` | 推拉窗 | 2000×1500 | 竖向中梃分割 + 左推/右推扇 |
 | `top-hung` | 上悬窗 | 1000×800 | 单分格 + 上悬扇 |
+| `tilt-turn` | 内开内倒 | 800×1400 | 单分格 + 内开内倒扇 |
 
 ## 8. 快捷键
 
@@ -317,6 +325,12 @@ graph TD
 | 2026-03-01 | 修复缺陷 | 修复 3D 预览 WebGL 上下文丢失导致黑屏问题：将 MeshPhysicalMaterial 降级为 MeshStandardMaterial，修复 PCFSoftShadowMap 弃用警告，添加 WebGL 上下文丢失/恢复机制，降低渲染资源消耗 |
 | 2026-03-01 | 修复缺陷 | 修复 2D 与 3D 中梃位置不对应的 bug：createMullionMesh 中 vertical 中梃 Y 位置和 horizontal 中梃 X 位置缺少 rect 偏移量 |
 | 2026-03-01 | 新增功能 | 添加 deploy.sh 一键打包部署脚本，支持自动构建、上传、服务器部署 |
+| 2026-03-01 | 重构 | 数据模型 v2.0：扩展 SashType 从6种到14种（新增外开/下悬/内开内倒/折叠）；新增 GlassPane、Hardware 接口；ProfileSeries 新增 frameDepth/sashDepth/mullionDepth 深度参数；新增 CONSTRAINTS 边界约束常量 |
+| 2026-03-01 | 重构 | window-factory.ts v2.0：新增 resizeWindowUnit（递归按比例更新尺寸）、deleteMullionFromOpening（删除中梃合并分格）、deleteSashFromOpening（删除扇）、addSashToOpening、addMullionToOpening、validateMullionPosition（边界校验）、updateMullionInOpenings（中梃拖拽更新）等函数 |
+| 2026-03-01 | 增强 | CanvasRenderer 2D 渲染器：支持全部14种扇类型的2D图例渲染（含开启方向线、铰链标记、推拉箭头、折叠锯齿线等）；使用 ProfileSeries 的 mullionWidth 替代硬编码 |
+| 2026-03-01 | 增强 | window3d.ts 3D 渲染器 v2.0：支持全部14种扇类型的3D开启动画；使用 ProfileSeries 的 depth 参数替代硬编码；五金件位置根据扇类型精确放置 |
+| 2026-03-01 | 增强 | Editor.tsx 交互增强：实现中梃拖拽（鼠标拖动实时更新位置）、删除中梃/扇（Delete键和工具栏按钮）、边界校验提示 |
+| 2026-03-01 | 增强 | PropertiesPanel 属性面板：扩展扇类型选择器支持全部14种类型；新增尺寸修改联动（修改宽高后内部结构按比例更新） |
 
 ## 11. 项目进度
 
@@ -331,6 +345,9 @@ graph TD
 | 2026-03-01 | 3D 预览 WebGL 兼容性修复 | 修复 WebGL 上下文丢失黑屏问题，材质降级，添加恢复机制 |
 | 2026-03-01 | 2D-3D 中梃位置对齐修复 | 修复 3D 中梃位置计算缺少 opening.rect 偏移量的 bug，确保 2D 与 3D 完全对应 |
 | 2026-03-01 | 一键部署脚本 | deploy.sh 支持自动打包、压缩、SCP 上传、服务器解压部署、Nginx 重载 |
+| 2026-03-01 | 数据模型 v2.0 重构 | 扩展 SashType 14种、新增 GlassPane/Hardware/CONSTRAINTS、ProfileSeries 新增 depth 参数 |
+| 2026-03-01 | 交互功能增强 | 中梃拖拽、删除中梃/扇、边界校验、尺寸联动、全部扇类型的2D/3D渲染 |
+| 2026-03-01 | 画图模块可执行规格书 | 完成 docs/画图模块_可执行规格书.md，定义20个功能点（P0/P1/P2）、数据模型v2.0、交互规则、边界约束 |
 
 ## 12. 未来扩展方向
 

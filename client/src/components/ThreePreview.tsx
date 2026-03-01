@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { WindowUnit } from '@/lib/types';
+import { DEFAULT_PROFILE_SERIES } from '@/lib/types';
 import { createWindow3D, createSceneEnvironment, createWallBackground } from '@/lib/window3d';
 import {
   RotateCcw,
@@ -308,7 +309,8 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
 
       // Wall background
       if (showWall) {
-        const wall = createWallBackground(win.width, win.height);
+        const series = DEFAULT_PROFILE_SERIES.find(s => s.id === win.profileSeriesId) || DEFAULT_PROFILE_SERIES[2];
+        const wall = createWallBackground(win.width, win.height, series.frameDepth);
         wall.position.x = currentX + winW / 2;
         wall.position.y = winH / 2;
         masterGroup.add(wall);
