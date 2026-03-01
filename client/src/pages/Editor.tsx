@@ -31,9 +31,10 @@ import { CONSTRAINTS } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
-import { Menu, Box, PenTool, Loader2 } from 'lucide-react';
+import { Menu, Box, PenTool, Loader2, Camera } from 'lucide-react';
 
 const ThreePreview = lazy(() => import('@/components/ThreePreview'));
+const ScenePreview = lazy(() => import('@/components/ScenePreview'));
 
 const MM_TO_PX = 0.5;
 
@@ -72,7 +73,7 @@ export default function Editor() {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene'>('2d');
 
   // v2.0: 中梃拖拽状态
   const [isDraggingMullion, setIsDraggingMullion] = useState(false);
@@ -567,14 +568,25 @@ export default function Editor() {
   // Toggle view mode
   const toggleViewMode = useCallback(() => {
     setViewMode(prev => {
-      const next = prev === '2d' ? '3d' : '2d';
-      if (next === '3d' && state.windows.length === 0) {
-        toast.info('请先在2D编辑器中创建窗口，再切换到3D预览');
+      const next = prev === '2d' ? '3d' : prev === '3d' ? 'scene' : '2d';
+      if ((next === '3d' || next === 'scene') && state.windows.length === 0) {
+        toast.info('请先在2D编辑器中创建窗口');
         return '2d';
       }
-      toast.info(next === '3d' ? '已切换到 3D 预览模式' : '已切换到 2D 编辑模式');
+      const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式' };
+      toast.info(`已切换到 ${labels[next]}`);
       return next;
     });
+  }, [state.windows.length]);
+
+  const handleSetViewMode = useCallback((mode: '2d' | '3d' | 'scene') => {
+    if ((mode === '3d' || mode === 'scene') && state.windows.length === 0) {
+      toast.info('请先在2D编辑器中创建窗口');
+      return;
+    }
+    const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式' };
+    toast.info(`已切换到 ${labels[mode]}`);
+    setViewMode(mode);
   }, [state.windows.length]);
 
   // v2.0: 删除选中的元素（中梃或扇）
@@ -628,7 +640,8 @@ export default function Editor() {
         case 't': setTool('add-mullion-h'); break;
         case 's': setTool('add-sash'); break;
         case 'h': setTool('pan'); break;
-        case '3': toggleViewMode(); break;
+        case '3': handleSetViewMode(viewMode === '3d' ? '2d' : '3d'); break;
+        case '4': handleSetViewMode(viewMode === 'scene' ? '2d' : 'scene'); break;
         case 'delete':
         case 'backspace':
           handleDeleteSelected();
@@ -637,7 +650,7 @@ export default function Editor() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleDeleteSelected, undo, redo, setTool, toggleViewMode]);
+  }, [handleDeleteSelected, undo, redo, setTool, toggleViewMode, handleSetViewMode, viewMode]);
 
   // Add template
   const handleAddTemplate = useCallback((templateId: string) => {
@@ -705,7 +718,7 @@ export default function Editor() {
 
           <div className="flex items-center bg-[oklch(0.17_0.028_260)] rounded-lg p-0.5 border border-[oklch(0.25_0.035_260)]">
             <button
-              onClick={() => viewMode !== '2d' && toggleViewMode()}
+              onClick={() => handleSetViewMode('2d')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
                 viewMode === '2d'
                   ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
@@ -716,7 +729,7 @@ export default function Editor() {
               2D
             </button>
             <button
-              onClick={() => viewMode !== '3d' && toggleViewMode()}
+              onClick={() => handleSetViewMode('3d')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
                 viewMode === '3d'
                   ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
@@ -725,6 +738,17 @@ export default function Editor() {
             >
               <Box size={10} />
               3D
+            </button>
+            <button
+              onClick={() => handleSetViewMode('scene')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
+                viewMode === 'scene'
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Camera size={10} />
+              实景
             </button>
           </div>
 
@@ -743,7 +767,7 @@ export default function Editor() {
           windowCount={state.windows.length}
           onOpenQuote={() => setQuoteOpen(true)}
           viewMode={viewMode}
-          onToggleViewMode={toggleViewMode}
+          onSetViewMode={handleSetViewMode}
         />
       )}
 
@@ -856,7 +880,7 @@ export default function Editor() {
               </div>
             )}
           </div>
-        ) : (
+        ) : viewMode === '3d' ? (
           /* 3D Preview Mode */
           <div className="flex-1 overflow-hidden relative">
             <Suspense
@@ -875,10 +899,29 @@ export default function Editor() {
               />
             </Suspense>
           </div>
+        ) : (
+          /* Scene Preview Mode - 实景融合 */
+          <div className="flex-1 overflow-hidden relative">
+            <Suspense
+              fallback={
+                <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+                    <span className="text-sm text-slate-400">加载实景引擎...</span>
+                  </div>
+                </div>
+              }
+            >
+              <ScenePreview
+                windows={state.windows}
+                selectedWindowId={state.selectedWindowId}
+              />
+            </Suspense>
+          </div>
         )}
 
-        {/* Right Properties Panel - desktop only */}
-        {!isMobileLayout && (
+        {/* Right Properties Panel - desktop only, hidden in scene mode */}
+        {!isMobileLayout && viewMode !== 'scene' && (
           <PropertiesPanel
             selectedWindow={selectedWindow}
             activeProfileSeries={state.activeProfileSeries}
