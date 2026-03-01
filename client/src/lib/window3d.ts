@@ -99,11 +99,11 @@ function createMullionMesh(
       const posX = mullion.position * SCALE;
       geo = new THREE.BoxGeometry(mw, opening.rect.height * SCALE, FRAME_DEPTH);
       px = offsetX + posX;
-      py = offsetY + opening.rect.height * SCALE / 2;
+      py = offsetY + opening.rect.y * SCALE + opening.rect.height * SCALE / 2;
     } else {
       const posY = mullion.position * SCALE;
       geo = new THREE.BoxGeometry(opening.rect.width * SCALE, mw, FRAME_DEPTH);
-      px = offsetX + opening.rect.width * SCALE / 2;
+      px = offsetX + opening.rect.x * SCALE + opening.rect.width * SCALE / 2;
       py = offsetY + posY;
     }
 
