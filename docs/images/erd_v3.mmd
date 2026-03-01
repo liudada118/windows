@@ -1,0 +1,136 @@
+erDiagram
+    USER ||--o| ROLE : has
+    USER ||--o{ ORDER : creates
+    USER ||--o{ SCAN_LOG : scans
+    CUSTOMER ||--o{ ORDER : has
+    ORDER ||--|{ ORDER_ITEM : contains
+    ORDER ||--o| QUOTATION : has
+    ORDER ||--o{ PAYMENT : receives
+    QUOTATION ||--|{ QUOTATION_ITEM : contains
+    ORDER_ITEM ||--|| WINDOW_DESIGN : references
+    ORDER_ITEM ||--o{ PRODUCTION_TASK : generates
+    WINDOW_DESIGN ||--|| PRODUCT_SERIES : uses
+    PRODUCT_SERIES ||--|{ CALCULATION_RULE : defines
+    PRODUCTION_TASK ||--o{ SCAN_LOG : tracks
+    SCAN_LOG ||--o| PIECE_WAGE : generates
+    MATERIAL ||--o| COLOR : has
+    MATERIAL ||--o| WAREHOUSE_STOCK : stored_in
+
+    USER {
+        string user_id PK
+        string phone
+        string password_hash
+        string nickname
+        string role_id FK
+        string parent_user_id FK
+    }
+    ROLE {
+        string role_id PK
+        string name
+        json permissions_json
+    }
+    CUSTOMER {
+        string customer_id PK
+        string name
+        string phone
+        string address
+        string type
+    }
+    ORDER {
+        string order_id PK
+        string customer_id FK
+        string order_number
+        string status
+        decimal total_amount
+        decimal paid_amount
+    }
+    ORDER_ITEM {
+        string item_id PK
+        string order_id FK
+        string window_design_id FK
+        string window_code
+        int quantity
+        decimal area
+        decimal amount
+    }
+    QUOTATION {
+        string quotation_id PK
+        string order_id FK
+        decimal total_amount
+        string status
+    }
+    QUOTATION_ITEM {
+        string item_id PK
+        string quotation_id FK
+        string description
+        decimal amount
+    }
+    WINDOW_DESIGN {
+        string design_id PK
+        string product_series_id FK
+        decimal total_width
+        decimal total_height
+        json design_data_json
+    }
+    WINDOW_TEMPLATE {
+        string template_id PK
+        string name
+        string category
+        json design_data_json
+    }
+    PRODUCT_SERIES {
+        string series_id PK
+        string name
+    }
+    CALCULATION_RULE {
+        string rule_id PK
+        string series_id FK
+        string rule_type
+        string formula
+    }
+    MATERIAL {
+        string material_id PK
+        string name
+        string type
+        decimal cost_price
+        decimal selling_price
+        string color_id FK
+    }
+    COLOR {
+        string color_id PK
+        string name
+        string type
+        string value
+    }
+    PRODUCTION_TASK {
+        string task_id PK
+        string order_item_id FK
+        string status
+        string assigned_to FK
+    }
+    SCAN_LOG {
+        string log_id PK
+        string task_id FK
+        string process_name
+        string scanned_by FK
+        datetime scanned_at
+    }
+    WAREHOUSE_STOCK {
+        string stock_id PK
+        string material_id FK
+        decimal quantity
+        string warehouse_location
+    }
+    PAYMENT {
+        string payment_id PK
+        string order_id FK
+        decimal amount
+        string payment_method
+        datetime paid_at
+    }
+    PIECE_WAGE {
+        string wage_id PK
+        string scan_log_id FK
+        string user_id FK
+        decimal amount
+    }
