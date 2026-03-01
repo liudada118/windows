@@ -901,7 +901,7 @@ export default function Editor() {
           </div>
         ) : (
           /* Scene Preview Mode - 实景融合 */
-          <div className="flex-1 overflow-hidden relative">
+          <div className="flex-1 flex flex-col overflow-hidden relative">
             <Suspense
               fallback={
                 <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">

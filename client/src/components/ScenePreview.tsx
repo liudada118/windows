@@ -531,9 +531,9 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onDrop={handleDrop}
             >
-              <div
-                className="w-full max-w-lg border-2 border-dashed border-slate-600 rounded-2xl p-12 text-center cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all"
-                onClick={() => fileInputRef.current?.click()}
+              <label
+                htmlFor="scene-photo-upload"
+                className="w-full max-w-lg border-2 border-dashed border-slate-600 rounded-2xl p-12 text-center cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all block"
               >
                 <Upload className="w-12 h-12 text-slate-500 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-slate-300 mb-2">上传现场照片</h3>
@@ -545,14 +545,15 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
                   选择图片
                 </div>
                 <p className="text-xs text-slate-600 mt-3">支持 JPG、PNG 格式，建议拍摄清晰的正面照片</p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
+                <input
+                  id="scene-photo-upload"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFileSelect}
+                />
+              </label>
             </div>
           ) : (
             /* 照片画布 */
