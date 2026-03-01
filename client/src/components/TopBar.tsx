@@ -1,0 +1,80 @@
+// WindoorDesigner - 顶部操作栏
+// 工业蓝图美学: 精简的顶部菜单栏
+
+import { FileDown, FilePlus, Save, FileText, HelpCircle } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface TopBarProps {
+  onNewProject: () => void;
+  onExportJSON: () => void;
+  windowCount: number;
+  onOpenQuote: () => void;
+}
+
+const LOGO_URL = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663332343321/Gg9tgRnnjrcuKp9tUpK6zd/logo-windoor-M8w5wRwzxGY7XhN2HR8qxP.webp';
+
+export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpenQuote }: TopBarProps) {
+  return (
+    <div className="h-10 bg-[oklch(0.13_0.022_260)] border-b border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-1 select-none">
+      {/* Logo & Title */}
+      <div className="flex items-center gap-2 mr-4">
+        <img src={LOGO_URL} alt="Logo" className="w-6 h-6 rounded" />
+        <span className="text-sm font-semibold text-slate-200 tracking-tight">WindoorDesigner</span>
+        <span className="text-[9px] text-amber-500/70 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded">BETA</span>
+      </div>
+
+      {/* Menu items */}
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={onNewProject}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+        >
+          <FilePlus size={14} />
+          <span>新建</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (windowCount === 0) {
+              toast.info('画布为空，请先添加窗口');
+              return;
+            }
+            toast.success('项目已保存');
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+        >
+          <Save size={14} />
+          <span>保存</span>
+        </button>
+
+        <button
+          onClick={onExportJSON}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+        >
+          <FileDown size={14} />
+          <span>导出</span>
+        </button>
+
+        <button
+          onClick={onOpenQuote}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+        >
+          <FileText size={14} />
+          <span>报价</span>
+        </button>
+      </div>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Help */}
+      <button
+        onClick={() => toast.info('快捷键: V-选择 R-画框 M-中梃 T-横档 S-扇 H-平移 Del-删除 Ctrl+Z-撤销')}
+        className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded transition-colors"
+      >
+        <HelpCircle size={14} />
+        <span>快捷键</span>
+      </button>
+    </div>
+  );
+}
