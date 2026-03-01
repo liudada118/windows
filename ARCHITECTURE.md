@@ -150,10 +150,10 @@ graph TD
   - `createWallBackground()`: 生成墙体背景和窗台，让窗户嵌入墙体展示
   - 坐标缩放: 1mm → 0.001 Three.js 单位（1 unit = 1m）
 
-- **材质系统**:
-  - 铝合金框架: `MeshPhysicalMaterial`（metalness=0.85, clearcoat=0.3）
-  - 玻璃: `MeshPhysicalMaterial`（transmission=0.85, ior=1.5, 半透明）
-  - 五金件: `MeshPhysicalMaterial`（metalness=0.95, 高光泽）
+- **材质系统**（使用 `MeshStandardMaterial` 以提高 WebGL 兼容性）:
+  - 铝合金框架: `MeshStandardMaterial`（metalness=0.8, roughness=0.3）
+  - 玻璃: `MeshStandardMaterial`（transparent, opacity=0.3, depthWrite=false）
+  - 五金件: `MeshStandardMaterial`（metalness=0.9, roughness=0.2）
   - 墙体: `MeshStandardMaterial`（粗糙质感）
 
 - **交互功能 (`ThreePreview.tsx`)**:
@@ -163,6 +163,9 @@ graph TD
   - 墙体显示/隐藏、网格显示/隐藏、明暗模式切换
   - 多窗口并排展示，自动相机适配
   - Lazy 加载（`React.lazy`），避免首屏加载 Three.js 体积
+  - WebGL 上下文丢失/恢复事件处理（`webglcontextlost`/`webglcontextrestored`）
+  - WebGL 可用性检测与降级 UI 提示
+  - 渲染降级策略: `powerPreference='default'`, `PCFShadowMap`, 像素比上限 1.5, 阴影贴图 1024×1024
 
 - **扇开启动画**:
   - 左开/右开: 绕铰链边 Y 轴旋转（pivot group 方式）
@@ -305,7 +308,26 @@ graph TD
 | `VITE_ANALYTICS_WEBSITE_ID` | 分析网站 ID |
 | `VITE_APP_TITLE` | 应用标题 |
 
-## 10. 未来扩展方向
+## 10. 更新日志
+
+| 日期 | 变更类型 | 描述 |
+|------|----------|------|
+| 2026-03-01 | 初始化 | 创建项目架构文档 |
+| 2026-03-01 | 修复缺陷 | 修复 3D 预览 WebGL 上下文丢失导致黑屏问题：将 MeshPhysicalMaterial 降级为 MeshStandardMaterial，修复 PCFSoftShadowMap 弃用警告，添加 WebGL 上下文丢失/恢复机制，降低渲染资源消耗 |
+
+## 11. 项目进度
+
+| 完成日期 | 完成的功能/工作 | 简要说明 |
+|----------|----------------|----------|
+| 2026-03-01 | 2D 绘图编辑器 | Canvas 2D 渲染引擎，支持外框绘制、中梃/横档分割、扇配置 |
+| 2026-03-01 | 预设窗型模板 | 6 种预设窗型（固定窗/单开窗/双开窗/三等分窗/推拉窗/上悬窗） |
+| 2026-03-01 | 属性面板 | 右侧属性面板，支持窗口名称、尺寸、位置编辑 |
+| 2026-03-01 | 报价功能 | 报价单生成、CSV 导出、打印 |
+| 2026-03-01 | 3D 预览 | Three.js 3D 实时预览，支持多视角、开启动画、墙体背景 |
+| 2026-03-01 | 移动端适配 | 触摸手势、响应式布局、移动端工具栏和属性抽屉 |
+| 2026-03-01 | 3D 预览 WebGL 兼容性修复 | 修复 WebGL 上下文丢失黑屏问题，材质降级，添加恢复机制 |
+
+## 12. 未来扩展方向
 
 - **后端集成**: 升级为 `web-db-user` 全栈项目，支持用户登录、项目云端存储
 - **BOM 算料**: 根据窗型结构自动计算型材用量、玻璃面积、五金件清单

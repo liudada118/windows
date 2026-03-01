@@ -1,6 +1,7 @@
 // WindoorDesigner - 3D预览组件
 // Three.js渲染器，支持轨道控制、开启动画、多窗口展示
 // 工业蓝图美学: 深色场景 + 铝合金质感 + 半透明玻璃
+// 修复: WebGL上下文丢失恢复 + 降级渲染策略
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
@@ -16,6 +17,7 @@ import {
   Maximize2,
   Eye,
   Grid3x3,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ThreePreviewProps {
@@ -25,6 +27,19 @@ interface ThreePreviewProps {
 
 type ViewAngle = 'front' | 'back' | 'left' | 'right' | 'top' | 'perspective';
 
+// 检测WebGL是否可用
+function isWebGLAvailable(): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext('webgl2') || canvas.getContext('webgl'))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function ThreePreview({ windows, selectedWindowId }: ThreePreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -33,12 +48,15 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
   const controlsRef = useRef<OrbitControls | null>(null);
   const animFrameRef = useRef<number>(0);
   const windowGroupRef = useRef<THREE.Group | null>(null);
+  const isContextLostRef = useRef(false);
 
   const [openAngle, setOpenAngle] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [showWall, setShowWall] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [webglError, setWebglError] = useState<string | null>(null);
+  const [contextLostCount, setContextLostCount] = useState(0);
 
   // Determine which windows to show
   const displayWindows = selectedWindowId
@@ -49,6 +67,12 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Check WebGL availability
+    if (!isWebGLAvailable()) {
+      setWebglError('您的浏览器或设备不支持 WebGL，无法使用 3D 预览功能。');
+      return;
+    }
 
     // Scene
     const scene = new THREE.Scene();
@@ -64,20 +88,62 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
     camera.position.set(0, 0.5, 3);
     cameraRef.current = camera;
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      powerPreference: 'high-performance',
-    });
+    // Renderer - 使用降级策略提高兼容性
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        powerPreference: 'default', // 改为default，避免请求高性能GPU
+        failIfMajorPerformanceCaveat: false, // 即使性能差也不失败
+      });
+    } catch (e) {
+      setWebglError('WebGL 渲染器初始化失败，请尝试刷新页面或使用其他浏览器。');
+      return;
+    }
+
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 降低像素比
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // 使用非弃用的阴影类型
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // WebGL上下文丢失/恢复事件处理
+    const canvas = renderer.domElement;
+
+    const handleContextLost = (event: Event) => {
+      event.preventDefault(); // 必须调用preventDefault以允许恢复
+      isContextLostRef.current = true;
+      cancelAnimationFrame(animFrameRef.current);
+      setContextLostCount(prev => prev + 1);
+      console.warn('WebGL context lost, waiting for restoration...');
+    };
+
+    const handleContextRestored = () => {
+      isContextLostRef.current = false;
+      console.log('WebGL context restored, reinitializing...');
+
+      // 重新设置渲染器
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFShadowMap;
+
+      // 重新启动动画循环
+      const animate = () => {
+        if (isContextLostRef.current) return;
+        animFrameRef.current = requestAnimationFrame(animate);
+        if (controlsRef.current) controlsRef.current.update();
+        renderer.render(scene, camera);
+      };
+      animate();
+    };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -94,6 +160,7 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
 
     // Animation loop
     const animate = () => {
+      if (isContextLostRef.current) return;
       animFrameRef.current = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
@@ -102,9 +169,10 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
 
     // Resize handler
     const handleResize = () => {
-      if (!container) return;
+      if (!container || isContextLostRef.current) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
+      if (w === 0 || h === 0) return; // 避免0尺寸
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -114,6 +182,8 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
 
     return () => {
       cancelAnimationFrame(animFrameRef.current);
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       observer.disconnect();
       controls.dispose();
       renderer.dispose();
@@ -122,6 +192,29 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
       }
     };
   }, []);
+
+  // 上下文丢失后自动重试
+  useEffect(() => {
+    if (contextLostCount > 0 && contextLostCount <= 3) {
+      // 延迟重建整个场景
+      const timer = setTimeout(() => {
+        const container = containerRef.current;
+        const renderer = rendererRef.current;
+        if (!container || !renderer || !isContextLostRef.current) return;
+
+        // 强制重建：移除旧canvas，触发重新初始化
+        console.log(`Attempting recovery #${contextLostCount}...`);
+
+        // 尝试通过WEBGL_lose_context扩展恢复
+        const gl = renderer.getContext();
+        const ext = gl.getExtension('WEBGL_lose_context');
+        if (ext) {
+          ext.restoreContext();
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [contextLostCount]);
 
   // Update dark/light mode
   useEffect(() => {
@@ -168,7 +261,7 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
   // Rebuild 3D models when windows or openAngle change
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
+    if (!scene || isContextLostRef.current) return;
 
     // Remove old window group
     if (windowGroupRef.current) {
@@ -310,10 +403,40 @@ export default function ThreePreview({ windows, selectedWindowId }: ThreePreview
     setViewAngle('perspective');
   }, [setViewAngle]);
 
+  // WebGL不可用时的降级UI
+  if (webglError) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
+        <div className="text-center px-6">
+          <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+          <p className="text-sm text-slate-300 mb-2">{webglError}</p>
+          <p className="text-xs text-slate-500">请尝试使用 Chrome 或 Firefox 浏览器</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full h-full">
       {/* Three.js canvas container */}
       <div ref={containerRef} className="absolute inset-0" />
+
+      {/* Context lost overlay */}
+      {isContextLostRef.current && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
+          <div className="text-center px-6">
+            <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+            <p className="text-sm text-slate-300 mb-2">3D 渲染上下文丢失</p>
+            <p className="text-xs text-slate-500 mb-3">正在尝试恢复...</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-xs bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors"
+            >
+              刷新页面
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Controls overlay - top left */}
       <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">

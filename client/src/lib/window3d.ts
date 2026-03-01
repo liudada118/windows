@@ -1,6 +1,7 @@
 // WindoorDesigner - 3D窗户模型生成器
 // 将2D WindowUnit数据模型转换为Three.js 3D几何体
 // 工业蓝图美学: 铝合金质感框架 + 半透明玻璃
+// 修复: 使用MeshStandardMaterial替代MeshPhysicalMaterial，提高兼容性
 
 import * as THREE from 'three';
 import type { WindowUnit, Opening, Frame, SashType } from './types';
@@ -13,40 +14,35 @@ const GLASS_THICKNESS = 6 * SCALE; // 玻璃厚度 6mm
 const SASH_DEPTH = 50 * SCALE; // 扇深度 50mm
 const HARDWARE_SIZE = 12 * SCALE; // 五金件尺寸
 
-// 创建铝合金材质
-function createAluminumMaterial(color: string = '#B8B8B8'): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+// 创建铝合金材质 - 使用MeshStandardMaterial提高兼容性
+function createAluminumMaterial(color: string = '#B8B8B8'): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
-    metalness: 0.85,
-    roughness: 0.25,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.2,
+    metalness: 0.8,
+    roughness: 0.3,
     envMapIntensity: 1.0,
   });
 }
 
-// 创建玻璃材质
-function createGlassMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+// 创建玻璃材质 - 简化为透明MeshStandardMaterial
+function createGlassMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: new THREE.Color('#c8e6f0'),
     metalness: 0.0,
-    roughness: 0.05,
-    transmission: 0.85,
+    roughness: 0.1,
     transparent: true,
-    opacity: 0.35,
-    ior: 1.5,
-    thickness: 0.01,
+    opacity: 0.3,
     side: THREE.DoubleSide,
+    depthWrite: false, // 避免透明物体深度冲突
   });
 }
 
 // 创建五金件材质
-function createHardwareMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+function createHardwareMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: new THREE.Color('#4a4a4a'),
-    metalness: 0.95,
-    roughness: 0.15,
-    clearcoat: 0.5,
+    metalness: 0.9,
+    roughness: 0.2,
   });
 }
 
@@ -362,18 +358,18 @@ export function createWindow3D(
   return group;
 }
 
-// 创建场景环境（地面、灯光、天空）
+// 创建场景环境（地面、灯光、天空）- 降低阴影贴图分辨率
 export function createSceneEnvironment(scene: THREE.Scene): void {
   // 环境光
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // 稍微增加环境光补偿
   scene.add(ambientLight);
 
-  // 主方向光（模拟阳光）
-  const sunLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
+  // 主方向光（模拟阳光）- 降低阴影贴图分辨率
+  const sunLight = new THREE.DirectionalLight(0xfff5e6, 1.0);
   sunLight.position.set(3, 5, 4);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.width = 2048;
-  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.mapSize.width = 1024; // 从2048降到1024
+  sunLight.shadow.mapSize.height = 1024;
   sunLight.shadow.camera.near = 0.1;
   sunLight.shadow.camera.far = 20;
   sunLight.shadow.camera.left = -5;
