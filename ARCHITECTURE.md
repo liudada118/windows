@@ -65,6 +65,7 @@ windoor-designer/
 │   └── index.ts                      # 静态文件服务（生产模式）
 ├── shared/
 │   └── const.ts                      # 共享常量
+├── deploy.sh                         # 一键打包部署脚本
 ├── package.json
 ├── tsconfig.json
 └── ARCHITECTURE.md
@@ -314,6 +315,8 @@ graph TD
 |------|----------|------|
 | 2026-03-01 | 初始化 | 创建项目架构文档 |
 | 2026-03-01 | 修复缺陷 | 修复 3D 预览 WebGL 上下文丢失导致黑屏问题：将 MeshPhysicalMaterial 降级为 MeshStandardMaterial，修复 PCFSoftShadowMap 弃用警告，添加 WebGL 上下文丢失/恢复机制，降低渲染资源消耗 |
+| 2026-03-01 | 修复缺陷 | 修复 2D 与 3D 中梃位置不对应的 bug：createMullionMesh 中 vertical 中梃 Y 位置和 horizontal 中梃 X 位置缺少 rect 偏移量 |
+| 2026-03-01 | 新增功能 | 添加 deploy.sh 一键打包部署脚本，支持自动构建、上传、服务器部署 |
 
 ## 11. 项目进度
 
@@ -326,6 +329,8 @@ graph TD
 | 2026-03-01 | 3D 预览 | Three.js 3D 实时预览，支持多视角、开启动画、墙体背景 |
 | 2026-03-01 | 移动端适配 | 触摸手势、响应式布局、移动端工具栏和属性抽屉 |
 | 2026-03-01 | 3D 预览 WebGL 兼容性修复 | 修复 WebGL 上下文丢失黑屏问题，材质降级，添加恢复机制 |
+| 2026-03-01 | 2D-3D 中梃位置对齐修复 | 修复 3D 中梃位置计算缺少 opening.rect 偏移量的 bug，确保 2D 与 3D 完全对应 |
+| 2026-03-01 | 一键部署脚本 | deploy.sh 支持自动打包、压缩、SCP 上传、服务器解压部署、Nginx 重载 |
 
 ## 12. 未来扩展方向
 
