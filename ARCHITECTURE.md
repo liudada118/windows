@@ -40,12 +40,16 @@ windoor-designer/
 │       │   ├── TopBar.tsx            # 顶部菜单栏
 │       │   ├── StatusBar.tsx         # 底部状态栏
 │       │   ├── QuoteDialog.tsx       # 报价单对话框
+│       │   ├── MobileToolbar.tsx     # 移动端底部工具栏
+│       │   ├── MobilePropertiesDrawer.tsx # 移动端属性抽屉面板
 │       │   ├── ErrorBoundary.tsx     # 错误边界
 │       │   └── ui/                   # shadcn/ui 基础组件
 │       ├── contexts/
 │       │   └── ThemeContext.tsx       # 主题上下文
 │       ├── hooks/
-│       │   └── useEditorStore.ts     # 编辑器状态管理
+│       │   ├── useEditorStore.ts     # 编辑器状态管理
+│       │   ├── useIsMobile.ts       # 响应式设备检测
+│       │   └── useTouch.ts          # 触摸事件处理
 │       ├── lib/
 │       │   ├── types.ts              # 核心数据模型与类型定义
 │       │   ├── window-factory.ts     # 窗口工厂函数与预设模板
@@ -169,6 +173,7 @@ graph TD
 
 ### 6.2 布局结构
 
+**桌面端布局 (>= 1024px)**:
 ```
 ┌──────────────────────────────────────────────┐
 │  TopBar (h-10): Logo + 菜单 + 快捷键帮助     │
@@ -178,7 +183,6 @@ graph TD
 │o │       (ResizeObserver 自适应)      │ Panel │
 │o │                                   │ (w-64)│
 │l │                                   │       │
-│  │                                   │       │
 │(w│                                   │       │
 │12│                                   │       │
 │) │                                   │       │
@@ -186,6 +190,39 @@ graph TD
 │  StatusBar (h-7): 工具 | 坐标 | 窗口数 | 缩放 │
 └──────────────────────────────────────────────┘
 ```
+
+**移动端/平板布局 (< 1024px)**:
+```
+┌──────────────────────────────┐
+│  MobileTopBar: Logo + 菜单按钮│
+├──────────────────────────────┤
+│                              │
+│     Canvas 画布区域     [+]  │
+│     (全屏, 触摸手势)    [-]  │
+│                        [%]   │
+│                              │
+├──────────────────────────────┤
+│  MobileToolbar (h-16):       │
+│  选择|画框|中梃|横档|加扇|平移|更多│
+└──────────────────────────────┘
+```
+
+### 6.3 移动端触摸适配
+
+| 手势 | 功能 | 实现方式 |
+|------|------|----------|
+| 单指拖拽 | 绘制/移动/操作（取决于当前工具） | `touchstart/move/end` 映射到统一 pointer handler |
+| 双指捏合 | 缩放画布（以捏合中心为焦点） | 计算双指距离比例，实时更新 zoom + pan |
+| 双指平移 | 同时平移画布 | 跟踪双指中点位移 |
+| 单指点击 | 选择/添加组件 | 无移动的 touch 序列识别为 tap |
+
+**响应式策略**:
+- `useScreenSize()` Hook 检测 mobile/tablet/desktop 三档
+- `useIsTouch()` Hook 检测触摸设备，避免 mouse/touch 事件重复处理
+- 移动端隐藏左侧 Toolbar 和右侧 PropertiesPanel，改用底部 MobileToolbar 和抽屉式 MobilePropertiesDrawer
+- 画布添加浮动缩放控件（右上角 +/-/% 按钮）
+- 所有触摸按钮最小尺寸 48x48px，符合移动端可访问性标准
+- viewport-fit=cover + safe-area-inset-bottom 适配 iPhone 刘海/底部横条
 
 ## 7. 预设窗型模板
 
@@ -213,6 +250,9 @@ graph TD
 | `Ctrl+Shift+Z` | 重做 |
 | 鼠标滚轮 | 缩放（以鼠标位置为中心） |
 | 鼠标中键拖拽 | 平移画布 |
+| 双指捏合 (触摸) | 缩放画布 |
+| 双指拖动 (触摸) | 平移画布 |
+| 单指拖拽 (触摸) | 绘制/移动（取决于工具） |
 
 ## 9. 环境变量
 

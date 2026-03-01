@@ -113,6 +113,19 @@
 }
 
 @layer components {
+  /* Mobile safe area padding */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Touch-none for canvas */
+  .touch-none {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
   .container {
     width: 100%;
     margin-left: auto;
