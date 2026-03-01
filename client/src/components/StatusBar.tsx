@@ -2,7 +2,7 @@
 // 工业蓝图美学: 显示坐标、缩放比例、当前工具等实时信息
 
 import type { ToolType } from '@/lib/types';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Box, PenTool } from 'lucide-react';
 
 interface StatusBarProps {
   mouseX: number;
@@ -13,6 +13,7 @@ interface StatusBarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  viewMode?: '2d' | '3d';
 }
 
 const TOOL_NAMES: Record<ToolType, string> = {
@@ -34,23 +35,39 @@ export default function StatusBar({
   onZoomIn,
   onZoomOut,
   onZoomReset,
+  viewMode = '2d',
 }: StatusBarProps) {
   return (
     <div className="h-7 bg-[oklch(0.14_0.025_260)] border-t border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-4 text-[10px] font-mono select-none">
-      {/* Current tool */}
+      {/* View mode indicator */}
       <div className="flex items-center gap-1.5">
-        <span className="text-slate-500">工具:</span>
-        <span className="text-amber-400">{TOOL_NAMES[activeTool]}</span>
+        {viewMode === '3d' ? (
+          <>
+            <Box size={10} className="text-amber-400" />
+            <span className="text-amber-400">3D 预览</span>
+          </>
+        ) : (
+          <>
+            <PenTool size={10} className="text-amber-400" />
+            <span className="text-amber-400">{TOOL_NAMES[activeTool]}</span>
+          </>
+        )}
       </div>
 
       {/* Divider */}
       <div className="w-px h-3.5 bg-[oklch(0.28_0.035_260)]" />
 
-      {/* Mouse coordinates */}
-      <div className="flex items-center gap-3">
-        <span className="text-slate-500">X: <span className="text-slate-300">{Math.round(mouseX)}</span></span>
-        <span className="text-slate-500">Y: <span className="text-slate-300">{Math.round(mouseY)}</span></span>
-      </div>
+      {/* Mouse coordinates - only in 2D mode */}
+      {viewMode === '2d' ? (
+        <div className="flex items-center gap-3">
+          <span className="text-slate-500">X: <span className="text-slate-300">{Math.round(mouseX)}</span></span>
+          <span className="text-slate-500">Y: <span className="text-slate-300">{Math.round(mouseY)}</span></span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-500">拖拽旋转 · 滚轮缩放 · 右键平移</span>
+        </div>
+      )}
 
       {/* Divider */}
       <div className="w-px h-3.5 bg-[oklch(0.28_0.035_260)]" />
@@ -64,27 +81,29 @@ export default function StatusBar({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Zoom controls */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={onZoomOut}
-          className="p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
-        >
-          <ZoomOut size={12} />
-        </button>
-        <button
-          onClick={onZoomReset}
-          className="px-1.5 py-0.5 text-slate-400 hover:text-amber-400 transition-colors rounded hover:bg-white/5"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          onClick={onZoomIn}
-          className="p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
-        >
-          <ZoomIn size={12} />
-        </button>
-      </div>
+      {/* Zoom controls - only in 2D mode */}
+      {viewMode === '2d' && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onZoomOut}
+            className="p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <ZoomOut size={12} />
+          </button>
+          <button
+            onClick={onZoomReset}
+            className="px-1.5 py-0.5 text-slate-400 hover:text-amber-400 transition-colors rounded hover:bg-white/5"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            onClick={onZoomIn}
+            className="p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <ZoomIn size={12} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

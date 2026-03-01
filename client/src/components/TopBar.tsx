@@ -1,7 +1,7 @@
 // WindoorDesigner - 顶部操作栏
-// 工业蓝图美学: 精简的顶部菜单栏
+// 工业蓝图美学: 精简的顶部菜单栏 + 2D/3D视图切换
 
-import { FileDown, FilePlus, Save, FileText, HelpCircle } from 'lucide-react';
+import { FileDown, FilePlus, Save, FileText, HelpCircle, Box, PenTool } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface TopBarProps {
@@ -9,11 +9,13 @@ interface TopBarProps {
   onExportJSON: () => void;
   windowCount: number;
   onOpenQuote: () => void;
+  viewMode: '2d' | '3d';
+  onToggleViewMode: () => void;
 }
 
 const LOGO_URL = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663332343321/Gg9tgRnnjrcuKp9tUpK6zd/logo-windoor-M8w5wRwzxGY7XhN2HR8qxP.webp';
 
-export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpenQuote }: TopBarProps) {
+export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpenQuote, viewMode, onToggleViewMode }: TopBarProps) {
   return (
     <div className="h-10 bg-[oklch(0.13_0.022_260)] border-b border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-1 select-none">
       {/* Logo & Title */}
@@ -21,6 +23,32 @@ export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpen
         <img src={LOGO_URL} alt="Logo" className="w-6 h-6 rounded" />
         <span className="text-sm font-semibold text-slate-200 tracking-tight">WindoorDesigner</span>
         <span className="text-[9px] text-amber-500/70 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded">BETA</span>
+      </div>
+
+      {/* 2D/3D Toggle */}
+      <div className="flex items-center bg-[oklch(0.17_0.028_260)] rounded-lg p-0.5 mr-2 border border-[oklch(0.25_0.035_260)]">
+        <button
+          onClick={() => viewMode !== '2d' && onToggleViewMode()}
+          className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all duration-200 ${
+            viewMode === '2d'
+              ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <PenTool size={12} />
+          <span>2D</span>
+        </button>
+        <button
+          onClick={() => viewMode !== '3d' && onToggleViewMode()}
+          className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all duration-200 ${
+            viewMode === '3d'
+              ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <Box size={12} />
+          <span>3D</span>
+        </button>
       </div>
 
       {/* Menu items */}
@@ -69,7 +97,7 @@ export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpen
 
       {/* Help */}
       <button
-        onClick={() => toast.info('快捷键: V-选择 R-画框 M-中梃 T-横档 S-扇 H-平移 Del-删除 Ctrl+Z-撤销')}
+        onClick={() => toast.info('快捷键: V-选择 R-画框 M-中梃 T-横档 S-扇 H-平移 3-切换3D Del-删除 Ctrl+Z-撤销')}
         className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded transition-colors"
       >
         <HelpCircle size={14} />

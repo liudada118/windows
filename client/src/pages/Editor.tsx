@@ -1,8 +1,9 @@
 // WindoorDesigner - 主编辑器页面
 // 工业蓝图美学: 三栏式布局 - 左工具栏 + 中画布 + 右属性面板
 // 移动端适配: 底部工具栏 + 触摸手势 + 抽屉面板
+// 3D预览: Three.js集成，支持2D/3D一键切换
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { useEditorStore } from '@/hooks/useEditorStore';
 import CanvasRenderer from '@/components/CanvasRenderer';
 import Toolbar from '@/components/Toolbar';
@@ -16,7 +17,10 @@ import type { ToolType, WindowUnit, Opening } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
-import { Menu } from 'lucide-react';
+import { Menu, Box, PenTool, Loader2 } from 'lucide-react';
+
+// Lazy load ThreePreview for code splitting
+const ThreePreview = lazy(() => import('@/components/ThreePreview'));
 
 const MM_TO_PX = 0.5;
 
@@ -55,6 +59,7 @@ export default function Editor() {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
 
   // Responsive
   const isTouch = useIsTouch();
@@ -289,7 +294,7 @@ export default function Editor() {
 
   // ===== Mouse handlers =====
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isTouch) return; // Prevent double handling on touch devices
+    if (isTouch) return;
     const rect = canvasContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const sx = e.clientX - rect.left;
@@ -342,13 +347,11 @@ export default function Editor() {
       tr.lastY = sy;
       tr.isPinching = false;
 
-      // Clear any previous long press
       if (tr.longPressTimer) clearTimeout(tr.longPressTimer);
       tr.longPressTimer = null;
 
       handlePointerDown(sx, sy);
     } else if (e.touches.length === 2) {
-      // Cancel any single-finger action in progress
       setIsDrawing(false);
       setIsDraggingWindow(false);
       setIsPanning(false);
@@ -399,7 +402,6 @@ export default function Editor() {
       const localMidX = midX - rect.left;
       const localMidY = midY - rect.top;
 
-      // Zoom towards pinch center + pan with finger movement
       const panDeltaX = midX - tr.lastMidX;
       const panDeltaY = midY - tr.lastMidY;
 
@@ -430,7 +432,6 @@ export default function Editor() {
       tr.isPinching = false;
       tr.fingerCount = 0;
     } else if (e.touches.length === 1) {
-      // Went from 2 to 1 finger - reset
       tr.isPinching = false;
       const rect = canvasContainerRef.current?.getBoundingClientRect();
       if (rect) {
@@ -458,6 +459,19 @@ export default function Editor() {
     setPan(newPanX, newPanY);
   }, [state.zoom, state.panX, state.panY, setZoom, setPan]);
 
+  // Toggle view mode
+  const toggleViewMode = useCallback(() => {
+    setViewMode(prev => {
+      const next = prev === '2d' ? '3d' : '2d';
+      if (next === '3d' && state.windows.length === 0) {
+        toast.info('请先在2D编辑器中创建窗口，再切换到3D预览');
+        return '2d';
+      }
+      toast.info(next === '3d' ? '已切换到 3D 预览模式' : '已切换到 2D 编辑模式');
+      return next;
+    });
+  }, [state.windows.length]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -477,6 +491,7 @@ export default function Editor() {
         case 't': setTool('add-mullion-h'); break;
         case 's': setTool('add-sash'); break;
         case 'h': setTool('pan'); break;
+        case '3': toggleViewMode(); break;
         case 'delete':
         case 'backspace':
           if (state.selectedWindowId) {
@@ -488,7 +503,7 @@ export default function Editor() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.selectedWindowId, undo, redo, setTool, removeWindow]);
+  }, [state.selectedWindowId, undo, redo, setTool, removeWindow, toggleViewMode]);
 
   // Add template
   const handleAddTemplate = useCallback((templateId: string) => {
@@ -532,7 +547,7 @@ export default function Editor() {
 
   // Cursor style based on tool
   const getCursor = () => {
-    if (isTouch) return 'default'; // Touch devices don't need custom cursors
+    if (isTouch) return 'default';
     if (isPanning) return 'grabbing';
     switch (state.activeTool) {
       case 'select': return isDraggingWindow ? 'grabbing' : 'default';
@@ -552,6 +567,33 @@ export default function Editor() {
         <div className="h-11 bg-[oklch(0.13_0.022_260)] border-b border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-2 select-none shrink-0">
           <span className="text-sm font-semibold text-slate-200 tracking-tight">WindoorDesigner</span>
           <span className="text-[9px] text-amber-500/70 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded">BETA</span>
+
+          {/* Mobile 2D/3D toggle */}
+          <div className="flex items-center bg-[oklch(0.17_0.028_260)] rounded-lg p-0.5 border border-[oklch(0.25_0.035_260)]">
+            <button
+              onClick={() => viewMode !== '2d' && toggleViewMode()}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
+                viewMode === '2d'
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+                  : 'text-slate-500'
+              }`}
+            >
+              <PenTool size={10} />
+              2D
+            </button>
+            <button
+              onClick={() => viewMode !== '3d' && toggleViewMode()}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
+                viewMode === '3d'
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Box size={10} />
+              3D
+            </button>
+          </div>
+
           <div className="flex-1" />
           <button
             onClick={() => setDrawerOpen(true)}
@@ -566,13 +608,15 @@ export default function Editor() {
           onExportJSON={handleExportJSON}
           windowCount={state.windows.length}
           onOpenQuote={() => setQuoteOpen(true)}
+          viewMode={viewMode}
+          onToggleViewMode={toggleViewMode}
         />
       )}
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Toolbar - desktop only */}
-        {!isMobileLayout && (
+        {/* Left Toolbar - desktop only, hidden in 3D mode */}
+        {!isMobileLayout && viewMode === '2d' && (
           <Toolbar
             activeTool={state.activeTool}
             onToolChange={setTool}
@@ -593,94 +637,115 @@ export default function Editor() {
           />
         )}
 
-        {/* Canvas Area */}
-        <div
-          ref={canvasContainerRef}
-          className="flex-1 overflow-hidden relative touch-none"
-          style={{ cursor: getCursor() }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onWheel={handleWheel}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <CanvasRenderer
-            windows={state.windows}
-            selectedWindowId={state.selectedWindowId}
-            selectedElementId={state.selectedElementId}
-            zoom={state.zoom}
-            panX={state.panX}
-            panY={state.panY}
-            showDimensions={state.showDimensions}
-            width={canvasSize.width}
-            height={canvasSize.height}
-          />
+        {/* Canvas / 3D Preview Area */}
+        {viewMode === '2d' ? (
+          <div
+            ref={canvasContainerRef}
+            className="flex-1 overflow-hidden relative touch-none"
+            style={{ cursor: getCursor() }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <CanvasRenderer
+              windows={state.windows}
+              selectedWindowId={state.selectedWindowId}
+              selectedElementId={state.selectedElementId}
+              zoom={state.zoom}
+              panX={state.panX}
+              panY={state.panY}
+              showDimensions={state.showDimensions}
+              width={canvasSize.width}
+              height={canvasSize.height}
+            />
 
-          {/* Drawing preview overlay */}
-          {isDrawing && (
-            <div
-              className="absolute border-2 border-dashed border-amber-400/60 bg-amber-400/5 pointer-events-none"
-              style={{
-                left: Math.min(drawStart.x, mousePos.x) * MM_TO_PX * state.zoom + state.panX,
-                top: Math.min(drawStart.y, mousePos.y) * MM_TO_PX * state.zoom + state.panY,
-                width: Math.abs(mousePos.x - drawStart.x) * MM_TO_PX * state.zoom,
-                height: Math.abs(mousePos.y - drawStart.y) * MM_TO_PX * state.zoom,
-              }}
-            >
-              <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-mono text-amber-400 whitespace-nowrap">
-                {Math.round(Math.abs(mousePos.x - drawStart.x))} × {Math.round(Math.abs(mousePos.y - drawStart.y))} mm
-              </span>
-            </div>
-          )}
-
-          {/* Empty state hint - responsive */}
-          {state.windows.length === 0 && !isDrawing && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center px-6">
-                <div className="text-4xl mb-3 opacity-20">🪟</div>
-                {isMobileLayout ? (
-                  <>
-                    <p className="text-sm text-slate-500">选择底部「画框」工具后在画布上拖拽绘制</p>
-                    <p className="text-xs text-slate-600 mt-1">或点击右上角菜单选择预设窗型</p>
-                    <p className="text-xs text-slate-600 mt-1">双指可缩放和平移画布</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-slate-500">按 <kbd className="px-1.5 py-0.5 bg-slate-700/50 rounded text-amber-400 text-xs font-mono">R</kbd> 在画布上拖拽绘制窗框</p>
-                    <p className="text-xs text-slate-600 mt-1">或从右侧面板选择预设窗型</p>
-                  </>
-                )}
+            {/* Drawing preview overlay */}
+            {isDrawing && (
+              <div
+                className="absolute border-2 border-dashed border-amber-400/60 bg-amber-400/5 pointer-events-none"
+                style={{
+                  left: Math.min(drawStart.x, mousePos.x) * MM_TO_PX * state.zoom + state.panX,
+                  top: Math.min(drawStart.y, mousePos.y) * MM_TO_PX * state.zoom + state.panY,
+                  width: Math.abs(mousePos.x - drawStart.x) * MM_TO_PX * state.zoom,
+                  height: Math.abs(mousePos.y - drawStart.y) * MM_TO_PX * state.zoom,
+                }}
+              >
+                <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-mono text-amber-400 whitespace-nowrap">
+                  {Math.round(Math.abs(mousePos.x - drawStart.x))} × {Math.round(Math.abs(mousePos.y - drawStart.y))} mm
+                </span>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Mobile: floating zoom controls */}
-          {isMobileLayout && (
-            <div className="absolute top-3 right-3 flex flex-col gap-1 z-10">
-              <button
-                onClick={() => setZoom(state.zoom * 1.3)}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-300 active:bg-amber-500/20"
-              >
-                <span className="text-lg font-bold">+</span>
-              </button>
-              <button
-                onClick={() => { setZoom(1); setPan(0, 0); }}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-400 active:bg-amber-500/20"
-              >
-                <span className="text-[10px] font-mono">{Math.round(state.zoom * 100)}%</span>
-              </button>
-              <button
-                onClick={() => setZoom(state.zoom / 1.3)}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-300 active:bg-amber-500/20"
-              >
-                <span className="text-lg font-bold">-</span>
-              </button>
-            </div>
-          )}
-        </div>
+            {/* Empty state hint - responsive */}
+            {state.windows.length === 0 && !isDrawing && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center px-6">
+                  <div className="text-4xl mb-3 opacity-20">🪟</div>
+                  {isMobileLayout ? (
+                    <>
+                      <p className="text-sm text-slate-500">选择底部「画框」工具后在画布上拖拽绘制</p>
+                      <p className="text-xs text-slate-600 mt-1">或点击右上角菜单选择预设窗型</p>
+                      <p className="text-xs text-slate-600 mt-1">双指可缩放和平移画布</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-slate-500">按 <kbd className="px-1.5 py-0.5 bg-slate-700/50 rounded text-amber-400 text-xs font-mono">R</kbd> 在画布上拖拽绘制窗框</p>
+                      <p className="text-xs text-slate-600 mt-1">或从右侧面板选择预设窗型</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Mobile: floating zoom controls */}
+            {isMobileLayout && (
+              <div className="absolute top-3 right-3 flex flex-col gap-1 z-10">
+                <button
+                  onClick={() => setZoom(state.zoom * 1.3)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-300 active:bg-amber-500/20"
+                >
+                  <span className="text-lg font-bold">+</span>
+                </button>
+                <button
+                  onClick={() => { setZoom(1); setPan(0, 0); }}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-400 active:bg-amber-500/20"
+                >
+                  <span className="text-[10px] font-mono">{Math.round(state.zoom * 100)}%</span>
+                </button>
+                <button
+                  onClick={() => setZoom(state.zoom / 1.3)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-[oklch(0.17_0.028_260)]/90 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-300 active:bg-amber-500/20"
+                >
+                  <span className="text-lg font-bold">-</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* 3D Preview Mode */
+          <div className="flex-1 overflow-hidden relative">
+            <Suspense
+              fallback={
+                <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+                    <span className="text-sm text-slate-400">加载 3D 引擎...</span>
+                  </div>
+                </div>
+              }
+            >
+              <ThreePreview
+                windows={state.windows}
+                selectedWindowId={state.selectedWindowId}
+              />
+            </Suspense>
+          </div>
+        )}
 
         {/* Right Properties Panel - desktop only */}
         {!isMobileLayout && (
@@ -698,39 +763,42 @@ export default function Editor() {
 
       {/* Bottom: Status Bar (desktop) or Mobile Toolbar */}
       {isMobileLayout ? (
-        <MobileToolbar
-          activeTool={state.activeTool}
-          onToolChange={setTool}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onUndo={undo}
-          onRedo={redo}
-          showDimensions={state.showDimensions}
-          onToggleDimensions={toggleDimensions}
-          snapToGrid={state.snapToGrid}
-          onToggleSnap={toggleSnapToGrid}
-          onDeleteSelected={() => {
-            if (state.selectedWindowId) {
-              removeWindow(state.selectedWindowId);
-              toast.info('已删除窗口');
-            }
-          }}
-          onZoomIn={() => setZoom(state.zoom * 1.2)}
-          onZoomOut={() => setZoom(state.zoom / 1.2)}
-          onZoomReset={() => { setZoom(1); setPan(0, 0); }}
-          zoom={state.zoom}
-          hasSelection={!!state.selectedWindowId}
-        />
+        viewMode === '2d' ? (
+          <MobileToolbar
+            activeTool={state.activeTool}
+            onToolChange={setTool}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+            showDimensions={state.showDimensions}
+            onToggleDimensions={toggleDimensions}
+            snapToGrid={state.snapToGrid}
+            onToggleSnap={toggleSnapToGrid}
+            onDeleteSelected={() => {
+              if (state.selectedWindowId) {
+                removeWindow(state.selectedWindowId);
+                toast.info('已删除窗口');
+              }
+            }}
+            onZoomIn={() => setZoom(state.zoom * 1.2)}
+            onZoomOut={() => setZoom(state.zoom / 1.2)}
+            onZoomReset={() => { setZoom(1); setPan(0, 0); }}
+            zoom={state.zoom}
+            hasSelection={!!state.selectedWindowId}
+          />
+        ) : null
       ) : (
         <StatusBar
-          mouseX={mousePos.x}
-          mouseY={mousePos.y}
+          mouseX={viewMode === '2d' ? mousePos.x : 0}
+          mouseY={viewMode === '2d' ? mousePos.y : 0}
           zoom={state.zoom}
-          activeTool={state.activeTool}
+          activeTool={viewMode === '2d' ? state.activeTool : 'select'}
           windowCount={state.windows.length}
           onZoomIn={() => setZoom(state.zoom * 1.2)}
           onZoomOut={() => setZoom(state.zoom / 1.2)}
           onZoomReset={() => { setZoom(1); setPan(0, 0); }}
+          viewMode={viewMode}
         />
       )}
 
