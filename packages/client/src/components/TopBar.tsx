@@ -1,7 +1,8 @@
-// WindoorDesigner - 顶部操作栏
+// WindoorDesigner - 顶部菜单栏 v2.0
 // 工业蓝图美学: 精简的顶部菜单栏 + 2D/3D/实景视图切换
+// 新增: 多格式导出、算料、版本管理
 
-import { FileDown, FilePlus, Save, FileText, HelpCircle, Box, PenTool, Camera } from 'lucide-react';
+import { FileDown, FilePlus, Save, FileText, HelpCircle, Box, PenTool, Camera, Calculator, Download, GitBranch } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface TopBarProps {
@@ -11,11 +12,17 @@ interface TopBarProps {
   onOpenQuote: () => void;
   viewMode: '2d' | '3d' | 'scene';
   onSetViewMode: (mode: '2d' | '3d' | 'scene') => void;
+  onOpenBOM?: () => void;
+  onOpenExport?: () => void;
+  onOpenVersions?: () => void;
 }
 
 const LOGO_URL = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663332343321/Gg9tgRnnjrcuKp9tUpK6zd/logo-windoor-M8w5wRwzxGY7XhN2HR8qxP.webp';
 
-export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpenQuote, viewMode, onSetViewMode }: TopBarProps) {
+export default function TopBar({
+  onNewProject, onExportJSON, windowCount, onOpenQuote, viewMode, onSetViewMode,
+  onOpenBOM, onOpenExport, onOpenVersions,
+}: TopBarProps) {
   return (
     <div className="h-10 bg-[oklch(0.13_0.022_260)] border-b border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-1 select-none">
       {/* Logo & Title */}
@@ -86,13 +93,29 @@ export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpen
           <span>保存</span>
         </button>
 
+        {/* 分隔线 */}
+        <div className="w-px h-4 bg-[oklch(0.25_0.035_260)] mx-1" />
+
         <button
           onClick={onExportJSON}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
         >
           <FileDown size={14} />
-          <span>导出</span>
+          <span>JSON</span>
         </button>
+
+        {onOpenExport && (
+          <button
+            onClick={onOpenExport}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+          >
+            <Download size={14} />
+            <span>导出</span>
+          </button>
+        )}
+
+        {/* 分隔线 */}
+        <div className="w-px h-4 bg-[oklch(0.25_0.035_260)] mx-1" />
 
         <button
           onClick={onOpenQuote}
@@ -101,6 +124,29 @@ export default function TopBar({ onNewProject, onExportJSON, windowCount, onOpen
           <FileText size={14} />
           <span>报价</span>
         </button>
+
+        {onOpenBOM && (
+          <button
+            onClick={onOpenBOM}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors"
+          >
+            <Calculator size={14} />
+            <span>算料</span>
+          </button>
+        )}
+
+        {onOpenVersions && (
+          <>
+            <div className="w-px h-4 bg-[oklch(0.25_0.035_260)] mx-1" />
+            <button
+              onClick={onOpenVersions}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition-colors"
+            >
+              <GitBranch size={14} />
+              <span>版本</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Spacer */}

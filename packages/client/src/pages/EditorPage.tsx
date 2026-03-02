@@ -26,7 +26,11 @@ import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { Menu, Box, PenTool, Loader2, Camera } from 'lucide-react';
+import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch } from 'lucide-react';
+import BOMPanel from '@/components/BOMPanel';
+import ExportDialog from '@/components/ExportDialog';
+import VersionManager from '@/components/VersionManager';
+import Konva from 'konva';
 
 const ThreePreview = lazy(() => import('@/components/ThreePreview'));
 const ScenePreview = lazy(() => import('@/components/ScenePreview'));
@@ -77,6 +81,10 @@ export default function EditorPage() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene'>('2d');
+  const [bomOpen, setBomOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
+  const stageRef = useRef<Konva.Stage | null>(null);
 
   // Responsive
   const isTouch = useIsTouch();
@@ -211,6 +219,13 @@ export default function EditorPage() {
     toast.success('已导出设计文件');
   }, [windows]);
 
+  // ===== Version restore =====
+  const handleVersionRestore = useCallback((restoredWindows: WindowUnit[]) => {
+    pushHistory(getSnapshot());
+    loadDesign({ windows: restoredWindows });
+    toast.success('已恢复版本');
+  }, [pushHistory, getSnapshot, loadDesign]);
+
   // ===== View mode & delete keyboard shortcuts (supplementary to useKeyboardShortcuts) =====
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -286,6 +301,9 @@ export default function EditorPage() {
           onOpenQuote={() => setQuoteOpen(true)}
           viewMode={viewMode}
           onSetViewMode={handleSetViewMode}
+          onOpenBOM={() => setBomOpen(true)}
+          onOpenExport={() => setExportOpen(true)}
+          onOpenVersions={() => setVersionOpen(true)}
         />
       )}
 
@@ -475,6 +493,29 @@ export default function EditorPage() {
         onClose={() => setQuoteOpen(false)}
         windows={windows}
       />
+
+      {/* BOM Panel */}
+      {bomOpen && (
+        <BOMPanel windows={windows} onClose={() => setBomOpen(false)} />
+      )}
+
+      {/* Export Dialog */}
+      {exportOpen && (
+        <ExportDialog
+          windows={windows}
+          stageRef={stageRef}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
+
+      {/* Version Manager */}
+      {versionOpen && (
+        <VersionManager
+          currentWindows={windows}
+          onRestore={handleVersionRestore}
+          onClose={() => setVersionOpen(false)}
+        />
+      )}
     </div>
   );
 }
