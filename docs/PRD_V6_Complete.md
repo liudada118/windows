@@ -1076,6 +1076,68 @@ async function loadDesignToJSON(designId: string): Promise<DesignDataJSON> {
 
 
 
+
+### 3.45 算料公式数据模型 (V6.0 新增)
+
+为支持新的行业算料公式库，对数据模型进行扩展。
+
+#### 3.45.1 `Formula` - 公式库主结构
+
+```typescript
+// 对应 packages/shared/src/types/formula.ts
+
+export interface Formula {
+  name: string; // e.g., "108平开系列"
+  parameters: Record<string, number>; // 公式中使用的固定参数，如 { frameFace: 40, ... }
+  profiles: ProfileFormula[];
+  glass: GlassFormula[];
+  addons: AddonFormula[];
+  pricing: PricingRule[];
+}
+```
+
+#### 3.45.2 `ProfileFormula` - 型材公式
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `name` | string | 型材名称，如 "108外框" |
+| `type` | string | 型材类型，如 `frame`, `mullion`, `sash` |
+| `length` | string | 长度计算表达式，如 `cc-40-40+5+5` |
+| `count` | string | 数量计算表达式，如 `1` |
+| `connection` | string | 连接类型，如 `frame-frame` |
+| `note` | string | 备注 |
+
+#### 3.45.3 `GlassFormula` - 玻璃公式
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `name` | string | 玻璃名称，如 "固玻" |
+| `type` | string | 玻璃类型，如 `fixedGlass`, `sashGlass` |
+| `width` | string | 宽度计算表达式，如 `cc-40-40-6` |
+| `height` | string | 高度计算表达式，如 `cc-40-40-6` |
+| `connection` | string | 连接类型 |
+
+#### 3.45.4 `AddonFormula` - 辅材公式
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `name` | string | 辅材名称，如 "螺丝3.0X19mm" |
+| `count` | string | 数量计算表达式，如 `(frame_width*2+frame_height*2)/500` |
+| `category` | string | 适用范围，如 `bar`, `sash` |
+
+#### 3.45.5 `PricingRule` - 报价规则
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `name` | string | 计价项名称，如 "平方" |
+| `price` | number | 单价 |
+| `type` | string | 计价方式，如 `area`, `sash` |
+| `minArea` | number | 最小计价面积 |
+
+#### 3.45.6 `calculation_rule` 表结构调整
+
+原 `calculation_rule` 表的 `formula_json` 字段过于灵活，不利于维护和查询。建议在 V6.1 中重构为更结构化的存储方式，将型材、玻璃、辅材、报价公式分别存入独立的表中，并通过外键与主公式表关联。
+
 ## 4. 画布数据 Schema (design_data_json)
 
 这是整个系统最核心的数据结构。`window_design.design_data_json` 和 `window_template.design_data_json` 共用同一套 Schema。该 JSON 描述了画布上一樘门窗的全部组件信息，前端画布渲染引擎和后端算料引擎均依赖此结构。
@@ -2166,156 +2228,129 @@ graph TD
 | 设计规则 | 门窗设计约束规则（最大尺寸、最小间距等） | — |
 | 打孔设置 | 型材打孔位置计算（CNC设备对接） | — |
 
-### 8.3 WindoorFormula DSL 规格（V5.0 新增）
+### 8.3 行业算料公式库 (V6.0 新增)
 
-这是算料公式引擎的核心语言定义，支持用户自定义公式来计算型材下料尺寸、玻璃面积、配件数量和报价。
+> 数据来源: 画门窗(WindoorCraft)行业软件实际配置
 
-#### 8.3.1 数据类型
+本节详细记录了从行业软件"画门窗"中提取的完整算料公式体系，并说明了如何将这些公式集成到 WindoorDesigner 系统中。算料公式是门窗行业的核心知识，它决定了从设计图纸到实际生产所需的每一根型材的切割长度、每一块玻璃的尺寸、每一个五金件的数量。
 
-| 类型 | 说明 | 示例 |
+#### 8.3.1 核心概念
+
+##### 变量体系
+
+门窗算料公式使用一套标准化的变量体系，其中最核心的变量是 `cc`（Current Component，当前构件尺寸）：
+
+| 变量名 | 含义 | 说明 |
 | :--- | :--- | :--- |
-| Number | 浮点数，精度 DECIMAL(10,2) | `2400.00` |
-| String | 字符串，用双引号包裹 | `"荣耀120"` |
-| Boolean | 布尔值 | `true` / `false` |
-| List | 数组 | `[1, 2, 3]` |
+| `cc` | 当前构件计算尺寸 | 由上下文决定：框横向=窗宽，框纵向=窗高，扇横向=扇宽，扇纵向=扇高 |
+| `frame_width` | 窗户总宽 | mm |
+| `frame_height` | 窗户总高 | mm |
+| `sash_width` | 扇宽 | mm |
+| `sash_height` | 扇高 | mm |
+| `sashCount` | 开启扇数量 | 整数 |
+| `overlap` | 搭接数量 | 用于压线计算 |
 
-#### 8.3.2 系统变量（30+）
+##### 连接类型 (connection)
 
-| 变量名 | 含义 | 单位 | 来源 |
+中梃和压线的长度取决于两端连接的构件类型：
+
+| 连接类型 | 含义 | 典型扣减 |
+| :--- | :--- | :--- |
+| `frame-frame` | 两端都连接外框 | 减两个外框小面 |
+| `frame-mullion` | 一端连外框，一端连中梃 | 减一个外框小面 + 一个中梃半宽 |
+| `mullion-mullion` | 两端都连接中梃 | 减两个中梃半宽 |
+
+#### 8.3.2 108 平开系列公式
+
+##### 型材公式
+
+| 构件 | 型材名称 | 长度公式 | 数量 | 连接类型 | 说明 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 外框 | 108外框 | `cc` | 1 | — | 上下横=窗宽，左右竖=窗高 |
+| 中梃 | 108中梃 | `cc-40-40+5+5` | 1 | frame-frame | 减两个外框小面40，加端铣量5 |
+| 中梃 | 108中梃 | `cc-40-20+5+5` | 1 | frame-mullion | 减外框小面40+中梃半宽20 |
+| 中梃 | 108中梃 | `cc-20-20+5+5` | 1 | mullion-mullion | 减两个中梃半宽20 |
+| 附框 | 108附框 | `cc-40-40` | 1 | frame-frame | 减两个外框小面 |
+| 扇压线 | 108压线 | `cc-54-54-22-22` | 1 | 上/下 | 横压线：减扇小面54，减压线宽22 |
+| 扇压线 | 108压线 | `cc-54-54` | 1 | 左/右 | 竖压线：减扇小面54 |
+| 扇 | 108扇 | `(cc-10)/2` | 2 | 对开扇总宽减中间缝隙10再除2 |
+
+##### 玻璃公式
+
+| 类型 | 宽度公式 | 高度公式 | 连接类型 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| 固玻 | `cc-40-40-6` | `cc-40-40-6` | frame-frame | 减外框小面40，减垫块缝隙6 |
+| 固玻 | `cc-40-20-6` | `cc-40-20-6` | frame-mullion | |
+| 固玻 | `cc-20-20-6` | `cc-20-20-6` | mullion-mullion | |
+| 扇玻 | `cc-70-6` | `cc-70-6` | — | 减扇料小面70，减垫块缝隙6 |
+
+##### 辅材公式
+
+| 名称 | 数量公式 | 适用范围 | 说明 |
 | :--- | :--- | :--- | :--- |
-| W | 外框总宽 | mm | canvas.width |
-| H | 外框总高 | mm | canvas.height |
-| FW | 外框型材面宽 | mm | frame.profileWidth |
-| FH | 外框型材截面高 | mm | frame.profileHeight |
-| SW | 扇型材面宽 | mm | sash.profileWidth |
-| SH | 扇型材截面高 | mm | sash.profileHeight |
-| MW | 中梃型材面宽 | mm | mullion.profileWidth |
-| MH | 中梃型材截面高 | mm | mullion.profileHeight |
-| GW | 玻璃宽 | mm | 计算值 |
-| GH | 玻璃高 | mm | 计算值 |
-| N | 扇数量 | 个 | 计算值 |
-| AREA | 面积 | ㎡ | W×H/1000000 |
-| REGION_W | 当前区域宽 | mm | region.bounds.width |
-| REGION_H | 当前区域高 | mm | region.bounds.height |
-| SASH_COUNT | 扇总数 | 个 | sashes.length |
-| MULLION_COUNT | 中梃总数 | 个 | mullions.length |
-| HAS_SCREEN | 是否有纱窗 | bool | sash.hasScreen |
-| OPEN_DIR | 开启方向 | string | sash.openDirection |
+| 螺丝3.0X19mm | `(frame_width*2+frame_height*2)/500` | bar | 每500mm一颗 |
+| 玻璃胶 | `(((frame_width*4+frame_height*4)/10)*.7*.7)/300` | bar | 按周长计算 |
+| 外框胶条3mm | `glass_perimeter/1000` | bar | 按玻璃周长计算(米) |
+| 扇胶条 | `(sash_perimeter/1000)*2` | sash | 内外各一圈 |
+| 扇执手 | `1` | sash | 每扇一个 |
 
-#### 8.3.3 运算符
+##### 报价公式
 
-| 运算符 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| `+` `-` `*` `/` | 四则运算 | `W - FW * 2` |
-| `%` | 取模 | `W % 100` |
-| `>` `<` `>=` `<=` `==` `!=` | 比较 | `W > 2000` |
-| `&&` `\|\|` `!` | 逻辑 | `W > 1000 && H > 800` |
-| `? :` | 三元条件 | `N > 2 ? SW * 2 : SW` |
+| 计价项 | 单价 | 计价方式 | 说明 |
+| :--- | :--- | :--- | :--- |
+| 平方 | ¥1250/m² | 按面积 | 最小计价面积2.0m² |
+| 开启 | ¥1000/个 | 按扇数 | 每个开启扇加收 |
+| 大玻璃 | 材料价 | 按块 | 面积>2.5m²的玻璃按实际材料价 |
+| 转角 | ¥300/个 | 按个 | 每个转角加收 |
 
-#### 8.3.4 内置函数（12个）
+#### 8.3.3 推拉窗公式
 
-| 函数 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| `ROUND(x, n)` | 四舍五入到n位小数 | `ROUND(W/3, 2)` |
-| `CEIL(x)` | 向上取整 | `CEIL(W/6000)` |
-| `FLOOR(x)` | 向下取整 | `FLOOR(H/100)` |
-| `MAX(a, b)` | 取最大值 | `MAX(W, H)` |
-| `MIN(a, b)` | 取最小值 | `MIN(W, 3000)` |
-| `ABS(x)` | 取绝对值 | `ABS(W - H)` |
-| `IF(cond, a, b)` | 条件判断 | `IF(N>2, 3, 2)` |
-| `SUM(list)` | 求和 | `SUM([100, 200])` |
-| `COUNT(list)` | 计数 | `COUNT(sashes)` |
-| `LOOKUP(key, table)` | 查表 | `LOOKUP("五金", material_table)` |
-| `SQRT(x)` | 平方根 | `SQRT(W*W + H*H)` |
-| `PI()` | 圆周率 | `PI() * R * R` |
+推拉窗与平开窗的主要区别在于：
+- 框分为**上滑**和**下滑**（而非统一的外框）
+- 扇分为**光企**和**勾企**（而非统一的扇料）
+- 扇之间有**交错重叠**（interlock）
 
-#### 8.3.5 公式 JSON 结构
+详细公式见代码文件 `packages/shared/src/formulas/series/sliding-90.ts`。
 
-```json
-{
-  "formulaId": "f_001",
-  "name": "外框上横料",
-  "category": "型材",
-  "materialCode": "001",
-  "expression": "W - FW * 2 + 10",
-  "unit": "mm",
-  "quantity": "2",
-  "conditions": "true",
-  "description": "外框上下横料下料长度"
-}
+#### 8.3.4 代码集成说明
+
+##### 文件结构
+
+```
+packages/shared/src/
+├── formulas/
+│   ├── index.ts              # 公式库入口
+│   ├── engine.ts             # 算料引擎核心计算模块
+│   └── series/
+│       ├── casement-108.ts   # 108平开系列公式
+│       └── sliding-90.ts     # 90推拉系列公式
+├── types/
+│   └── formula.ts            # 公式类型定义
+└── constants/
+    └── profiles.ts           # 型材系列 → 公式映射
 ```
 
-#### 8.3.6 EBNF 语法定义 (V5.3 新增)
+##### 使用方式
 
-```ebnf
-(* WindoorFormula DSL 完整语法定义 *)
+```typescript
+import { formulaLibrary, calculateMaterials, extractWindowInput } from '@windoor/shared';
 
-formula_set       ::= "{" { string_literal ":" expression } "," "}"
+// 1. 获取公式
+const formula = formulaLibrary['casement-108'];
 
-(* 表达式优先级：三元 < 逻辑OR < 逻辑AND < 比较 < 加减 < 乘除 < 一元 < 原子 *)
-expression        ::= ternary_expr
-ternary_expr      ::= or_expr [ "?" expression ":" expression ]
-or_expr           ::= and_expr { "||" and_expr }
-and_expr          ::= comparison_expr { "&&" comparison_expr }
-comparison_expr   ::= additive_expr { ( ">" | "<" | ">=" | "<=" | "==" | "!=" ) additive_expr }
-additive_expr     ::= multiplicative_expr { ( "+" | "-" ) multiplicative_expr }
-multiplicative_expr ::= unary_expr { ( "*" | "/" | "%" ) unary_expr }
-unary_expr        ::= [ "!" | "-" ] primary_expr
-primary_expr      ::= number_literal
-                    | string_literal
-                    | boolean_literal
-                    | list_literal
-                    | function_call
-                    | variable
-                    | "(" expression ")"
+// 2. 从窗户数据提取输入
+const input = extractWindowInput(windowUnit);
 
-function_call     ::= identifier "(" [ expression { "," expression } ] ")"
-variable          ::= identifier { "." identifier }
-list_literal      ::= "[" [ expression { "," expression } ] "]"
-boolean_literal   ::= "true" | "false"
+// 3. 计算材料清单
+const result = calculateMaterials(formula, input);
 
-identifier        ::= ( letter | "_" ) { letter | digit | "_" }
-string_literal    ::= '"' { any_character_except_quote } '"'
-number_literal    ::= [ "-" ] ( "0" | ( digit_1_9 { digit } ) ) [ "." digit { digit } ]
-
-letter            ::= "a".."z" | "A".."Z"
-digit             ::= "0".."9"
-digit_1_9         ::= "1".."9"
+// result.profiles  → 型材清单
+// result.glass     → 玻璃清单
+// result.addons    → 辅材清单
+// result.quote     → 报价明细
+// result.totalPrice → 总价
 ```
 
-> **说明：** 该 EBNF 完整覆盖了 8.3.3 节定义的所有运算符（四则、取模、比较、逻辑、三元）和 8.3.1 节定义的所有数据类型（Number、String、Boolean、List）。运算符优先级从低到高为：三元 → 逻辑OR → 逻辑AND → 比较 → 加减 → 乘除取模 → 一元取反/取负。
-
-#### 8.3.7 错误处理机制 (V5.3 新增)
-
-引擎在解析和执行过程中，必须能够识别并抛出具有明确错误码和信息的异常。前端应根据错误码显示友好的提示。
-
-| 错误码 | 类型 | 描述 | 前端提示示例 |
-| :--- | :--- | :--- | :--- |
-| 1001 | `SyntaxError` | 括号不匹配、缺少操作符等语法错误 | "公式语法错误，请检查括号或运算符" |
-| 1002 | `SyntaxError` | 非法的函数名称 | "函数 'ABC' 不存在" |
-| 2001 | `ReferenceError` | 引用了不存在的变量 | "变量 'window.height_extra' 不存在" |
-| 2002 | `TypeError` | 函数参数数量或类型不匹配 | "函数 'MAX' 需要至少一个参数" |
-| 2003 | `TypeError` | 对非数字类型执行了数学运算 | "无法对文本 'abc' 进行数学计算" |
-| 3001 | `EvaluationError` | 除以零 | "计算错误：不能除以零" |
-| 3002 | `EvaluationError` | 递归深度超限（防止死循环） | "公式循环引用，无法计算" |
-
-#### 8.3.8 安全沙箱与性能 (V5.3 新增)
-
-所有公式必须在严格的 JavaScript 沙箱环境中执行，与主线程隔离：
-
-- **禁用全局对象：** `window`, `document`, `fetch` 等全部禁止访问，只暴露白名单中的数学函数 (`Math.sin`, `Math.cos` 等) 和自定义的系统变量。
-- **严禁危险操作：** 禁止访问 `eval`, `new Function()`, `setTimeout`, `setInterval`。
-- **后台执行：** 使用 Web Worker 在后台线程执行计算，避免阻塞 UI。
-- **超时限制：** 单个公式的执行时间不得超过 **50ms**。超时后抛出错误码 `3003 TimeoutError`。
-- **结果缓存：** 对于相同的输入（窗户尺寸、型材等），公式计算结果应被缓存 (memoization)，避免重复计算。
-
-#### 8.3.9 执行流程
-
-1. **解析阶段**：将 `expression` 字符串解析为 AST（抽象语法树），如遇语法错误则抛出 `1001`/`1002` 错误码
-2. **绑定阶段**：将系统变量和自定义变量绑定到当前 `design_data_json` 的实际值，如引用不存在的变量则抛出 `2001` 错误码
-3. **求值阶段**：在安全沙箱中遍历 AST 计算结果，如遇运行时错误则抛出 `3001`/`3002`/`3003` 错误码
-4. **校验阶段**：检查结果是否在合理范围内（如下料长度 > 0 且 ≤ 支长）
-5. **输出阶段**：生成型材清单、玻璃清单、配件清单
 
 ### 8.4 材料管理页 (`/product-manage/sub-bar`)
 
@@ -4705,3 +4740,5 @@ Excel 导出。
 **总模块：14 个功能模块**
 **总数据表：41 张**
 **总 API：28 组**
+
+
