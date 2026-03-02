@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V2.1 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V3.0 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -69,7 +69,9 @@
 | 路由 | Wouter | 轻量级 | 一致 |
 | 2D 画布 | **Konva.js + react-konva** | — | **已完成迁移** |
 | 状态管理 | **Zustand** (designStore/canvasStore/historyStore) | — | **已完成迁移** |
-| 3D 渲染 | Three.js + R3F | — | 一致 |
+| 3D 渲染 | Three.js + R3F + **ThreePreviewV2**（颜色/木纹/爆炸视图） | — | **已增强** |
+| 导出引擎 | **jspdf + dxf-writer + jszip + file-saver** | — | **已完成** |
+| 算料引擎 | **WindoorFormula DSL**（Tokenizer/Parser/Evaluator + Web Worker） | — | **已完成** |
 | 后端 | 无（纯前端静态） | — | **需升级为全栈** |
 | 数据库 | 无 | — | **需引入 MySQL + Redis** |
 | 部署 | Nginx 静态站点 | 8.140.238.44/windows/ | 需迁移到容器化 |
@@ -408,11 +410,17 @@ windoor-designer/
 │   │       │   │   ├── SashRenderer.tsx    # L3 扇标记渲染（13种扇类型）
 │   │       │   │   ├── DimensionRenderer.tsx # L4 尺寸标注
 │   │       │   │   ├── SelectionOverlay.tsx  # L5 选中高亮+控制点
-│   │       │   │   └── OpeningRenderer.tsx   # Opening 递归渲染
+│   │   │       │   ├── OpeningRenderer.tsx   # Opening 递归渲染
+│   │       │   └── AdvancedShapes.tsx   # ★ 异形框+格条渲染（Phase 5）
+│   │       │   ├── three/              # ★ 3D 增强组件（Phase 2）
+│   │       │   │   └── ThreePreviewV2.tsx # 增强版3D预览（颜色/木纹/爆炸视图）
 │   │       │   ├── Toolbox.tsx         # 左侧工具面板（新版 Zustand）
 │   │       │   ├── PropertyPanel.tsx   # 右侧属性面板（新版 Zustand）
 │   │       │   ├── TopToolbar.tsx      # 顶部工具栏（新版 Zustand）
 │   │       │   ├── ContextMenu.tsx     # 右键菜单（新增）
+│   │       │   ├── BOMPanel.tsx        # ★ 材料清单面板（Phase 4）
+│   │       │   ├── ExportDialog.tsx    # ★ 多格式导出对话框（Phase 3）
+│   │       │   ├── VersionManager.tsx  # ★ 版本管理面板（Phase 5）
 │   │       │   ├── CanvasRenderer.tsx  # 旧版 SVG 画布（保留）
 │   │       │   ├── Preview3D.tsx       # Three.js 3D 预览
 │   │       │   ├── ErrorBoundary.tsx   # 错误边界
@@ -430,6 +438,23 @@ windoor-designer/
 │   │       │   ├── geometry.ts        # 几何计算工具函数（新增）
 │   │       │   ├── validators.ts      # 边界校验工具函数（新增）
 │   │       │   ├── storageAdapter.ts   # localStorage 持久化适配器（新增）
+│   │       │   ├── textures.ts        # ★ 程序化木纹纹理生成器（Phase 2）
+│   │       │   ├── three-utils.ts     # ★ 3D 工具函数（爆炸视图/材质）（Phase 2）
+│   │       │   ├── window3d-v2.ts     # ★ 重构3D模型生成（Phase 2）
+│   │       │   ├── export/            # ★ 多格式导出模块（Phase 3）
+│   │       │   │   ├── index.ts       # 统一导出入口
+│   │       │   │   ├── export-png.ts  # PNG 导出（300 DPI）
+│   │       │   │   ├── export-svg.ts  # SVG 矢量导出
+│   │       │   │   ├── export-pdf.ts  # PDF A4 打印模板
+│   │       │   │   ├── export-dxf.ts  # DXF AutoCAD 导出
+│   │       │   │   └── export-batch.ts # 批量 ZIP 导出
+│   │       │   ├── calc-engine/       # ★ 算料引擎（Phase 4）
+│   │       │   │   ├── index.ts       # 算料引擎入口
+│   │       │   │   ├── tokenizer.ts   # 词法分析器
+│   │       │   │   ├── parser.ts      # AST 解析器
+│   │       │   │   ├── evaluator.ts   # 表达式求值器
+│   │       │   │   ├── calc-module.ts # 门窗算料模块
+│   │       │   │   └── calc-worker.ts # Web Worker 异步计算
 │   │       │   ├── window-factory.ts   # 窗户工厂函数+预设模板
 │   │       │   ├── types.ts           # 前端类型定义
 │   │       │   └── utils.ts           # 通用工具
@@ -525,15 +550,34 @@ windoor-designer/
 | 2026-03-02 | 键盘快捷键 | 重构快捷键系统，支持 V/R/M/H/S/G/D/Ctrl+Z/Y/S |
 | 2026-03-02 | 右键菜单 | 新增右键上下文菜单，支持快捷删除和工具切换 |
 | 2026-03-02 | 边界校验 | 实现窗户尺寸、中梃位置、扇互斥等校验规则 |
+| 2026-03-02 | 3D 预览增强 (Phase 2) | ThreePreviewV2 组件：颜色/木纹同步切换（23种木纹+20+纯色）、爆炸视图动画、增强光照和玻璃材质 |
+| 2026-03-02 | 程序化纹理生成 | textures.ts：23种木纹纹理程序化生成（橡木/胡桃木/樱桃木等），无需外部贴图文件 |
+| 2026-03-02 | 3D 模型重构 | window3d-v2.ts：重构3D模型生成逻辑，支持颜色配置同步和爆炸视图分解 |
+| 2026-03-02 | PNG 导出 (Phase 3) | 300 DPI 高清 PNG 导出，支持透明背景 |
+| 2026-03-02 | SVG 导出 | 矢量 SVG 导出，图层分离（框/中梃/玻璃/标注） |
+| 2026-03-02 | PDF 导出 | A4 打印模板 PDF 导出，含标题栏和尺寸标注 |
+| 2026-03-02 | DXF 导出 | AutoCAD 兼容 DXF 导出，图层分离，1:1 比例 |
+| 2026-03-02 | 批量导出 | ZIP 打包批量导出所有窗户（PNG+SVG+PDF+DXF） |
+| 2026-03-02 | 导出对话框 UI | ExportDialog 组件：格式选择、参数配置、批量导出 |
+| 2026-03-02 | WindoorFormula DSL 引擎 (Phase 4) | 完整的词法分析器+AST解析器+求值器，支持30+系统变量和12个内置函数 |
+| 2026-03-02 | 算料模块 | 门窗算料模块：框料/中梃/扇料/玻璃/五金/密封条 6 大类自动计算 |
+| 2026-03-02 | Web Worker 算料 | 算料引擎在 Web Worker 中异步执行，不阻塞主线程 |
+| 2026-03-02 | 材料清单 UI | BOMPanel 组件：按窗户/类别分组显示、CSV 导出、成本汇总 |
+| 2026-03-02 | 异形框渲染 (Phase 5) | AdvancedShapes 组件：5种弧顶异形框（圆弧/尖拱/三角/梯形/半圆） |
+| 2026-03-02 | 格条渲染 | 4种格条样式（十字/田字/菱形/自定义网格） |
+| 2026-03-02 | 版本管理 | VersionManager 组件：保存/恢复/删除版本快照，localStorage 持久化 |
+| 2026-03-02 | TopBar 增强 | 新增算料/导出/版本管理按钮到顶部工具栏 |
 
 ### 9.2 当前状态评估
 
 | 维度 | 当前状态 | MVP 目标 | 差距 |
 | :--- | :--- | :--- | :--- |
 | 2D 画布 | **Konva.js 已完成** | Konva.js 专业画布 | ✅ 已完成 |
+| 3D 预览 | **ThreePreviewV2 已完成** | 颜色/木纹/爆炸视图 | ✅ 已完成 |
 | 数据持久化 | **localStorage 已完成** | 本地存储 + 云端同步 | 需全栈升级（云端同步） |
-| 算料功能 | 无 | DSL 公式引擎 | 需从零开发 |
-| 导出能力 | 无 | PNG/PDF/DXF | 需开发 |
+| 算料功能 | **WindoorFormula DSL 已完成** | DSL 公式引擎 | ✅ 已完成 |
+| 导出能力 | **PNG/SVG/PDF/DXF 已完成** | 多格式导出 | ✅ 已完成 |
+| 版本管理 | **localStorage 版本快照已完成** | 版本历史 | ✅ 已完成（需升级为云端） |
 | 型材系统 | 硬编码 60mm | 可配置型材库 | 需开发 |
 | 报价功能 | 无 | 自动报价 | 需开发 |
 | 用户认证 | 无 | JWT + 多租户 | 需全栈升级 |
@@ -550,11 +594,14 @@ windoor-designer/
 | ~~**P0**~~ | ~~2D 画布引擎需从 SVG 迁移到 Konva.js~~ | ✅ **已完成** - Konva.js 多层渲染架构 | — |
 | ~~**P0**~~ | ~~状态管理需从 useReducer 迁移到 Zustand~~ | ✅ **已完成** - designStore/canvasStore/historyStore | — |
 | ~~**P0**~~ | ~~无数据持久化~~ | ✅ **已完成** - localStorage 自动保存 + JSON 导入/导出 | — |
-| **高** | 构建产物 1.7MB 单 chunk | dynamic import 拆分 Three.js | 1d |
-| **高** | Delete/Backspace 删除功能未实现 | 补充删除 Action | 0.5d |
-| **中** | 格条(glazing_bar)和填充物(filling)未实现 | 补充 UI 和 Action | 2d |
-| **中** | 缩放快捷键 +/- 未正确实现 | 修复 SET_ZOOM 逻辑 | 0.5d |
-| **低** | 3D 预览中扇的开启动画 | 添加扇旋转动画 | 1d |
+| ~~**P0**~~ | ~~算料功能缺失~~ | ✅ **已完成** - WindoorFormula DSL 引擎 + Web Worker | — |
+| ~~**P0**~~ | ~~导出功能缺失~~ | ✅ **已完成** - PNG/SVG/PDF/DXF + 批量 ZIP 导出 | — |
+| ~~**P0**~~ | ~~3D 预览功能单一~~ | ✅ **已完成** - ThreePreviewV2（颜色/木纹/爆炸视图） | — |
+| ~~**中**~~ | ~~格条(glazing_bar)未实现~~ | ✅ **已完成** - AdvancedShapes（4种格条样式） | — |
+| **高** | 构建产物 2.3MB 单 chunk | dynamic import 拆分 Three.js + 算料引擎 | 1d |
+| **中** | 异形框仅前端渲染，未集成到数据模型 | 扩展 Frame.shape 类型 | 1d |
+| **中** | 算料公式库为空 | 需要配置实际的门窗行业公式 | 2d |
+| **低** | 版本管理仅 localStorage | 升级为云端版本管理 | 1d |
 
 ### 10.2 Konva.js 迁移策略
 
