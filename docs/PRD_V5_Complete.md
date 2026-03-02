@@ -1,6 +1,6 @@
 # 《门窗之星》产品需求文档（完整版）
 
-**版本：** V5.3 Complete
+**版本：** V5.4 Complete
 **日期：** 2026-03-02
 **负责人：** Manus AI
 **状态：** 完整自包含，可交付开发
@@ -43,7 +43,8 @@
 | 5.0 Complete | 2026-03-02 | Manus AI | **全量合并**：将所有补充文档深度整合为单一自包含文档（4000+ 行），消除碎片化，成为唯一事实来源。 |
 | 5.1 | 2026-03-02 | Manus AI | **UX 增强**：补充画图渲染“黄金标准”用户体验章节，定义三位一体交互模型和多层次渲染策略。 |
 | 5.2 Complete | 2026-03-02 | Manus AI | **画图模块深度补齐**：新增 Schema 字段联动规则、控制点交互定义、中梃拖拽状态机、2D→3D映射规则、导出打印规格、异常边界处理、撤销粒度、多选批量操作、渲染精确参数、性能量化指标。 |
-| 5.3 Complete | 2026-03-02 | Manus AI | **产品战略补充**：新增竞品分析、用户画像、北极星指标、MVP边界定义。**算料引擎增强**：新增 EBNF 语法定义、错误处理机制、安全沙箱规格。**一致性修复**：统一订阅定价为三档（免费/专业/企业）、统一技术栈（Konva.js + NestJS + Prisma）、修复数据模型矛盾。**工程化补充**：新增数据库索引设计、API限流策略、版本控制、压测方案。 |
+| 5.3 Complete | 2026-03-02 | Manus AI | **产品战略补充**：新增竞品分析、用户画像、北极星指标、MVP边界定义。**算料引擎增强**：新增 EBNF 语法定义、错误处理机制、安全沙箱规格。**一致性修复**：统一订阅定价为三档、统一技术栈、修复数据模型矛盾。**工程化补充**：新增数据库索引设计、API限流策略、版本控制、压测方案。 |
+| 5.4 Complete | 2026-03-02 | Manus AI | **根据 V3 分析报告全面优化**：修复 EBNF 语法不完整（补充三元/比较/逻辑运算符）、统一主键命名规范、统一技术栈为 Konva.js + React 19。新增 3 个端到端业务流程 Mermaid 图、北极星分解指标、WebSocket 事件目录。增强文件上传/OSS规格、下料优化算法伪代码、打印模板引擎规格。统一数据模型声明（补充枚举映射表+转换伪代码）。为 V5.0 新增模块 API 补充完整请求/响应示例。归档 supplements 和过程文件。 |
 
 ---
 
@@ -121,17 +122,198 @@
 
 ### 2.7 技术架构概述
 
-| 层级 | 技术选型 |
-| :--- | :--- |
-| 前端 | React 18 + TypeScript + Vite + TailwindCSS + Zustand |
-| 画布引擎 | Konva.js（2D）+ Three.js（3D/阳光房） |
-| 后端 | Node.js + NestJS + TypeScript + Prisma (ORM) |
-| 数据库 | MySQL 8.0（主库）+ Redis（缓存/队列） |
-| 对象存储 | 阿里云 OSS / AWS S3 |
-| 搜索引擎 | Elasticsearch（订单、客户、物料全文检索） |
-| 实时通信 | WebSocket（Socket.io） |
-| AI 服务 | ControlNet + Stable Diffusion（GPU 服务器 / 云 API） |
-| 部署 | Docker + Kubernetes，阿里云/腾讯云 |
+| 层级 | 技术选型 | 选型依据 |
+| :--- | :--- | :--- |
+| 前端框架 | React 19 + TypeScript + Vite + Tailwind CSS 4 | 与现有代码一致 |
+| 状态管理 | Zustand（全局状态）+ useReducer（画布局部状态） | Zustand 轻量且与 React 19 兼容性佳 |
+| 2D 画布引擎 | **Konva.js + react-konva** | 场景图架构与 Cell 递归树天然对齐，官方有 Window Frame Designer 示例，AVADA MEDIA 行业验证（详见《画布引擎技术选型分析报告》） |
+| 3D 渲染引擎 | Three.js（3D预览/阳光房） | Web 3D 行业标准 |
+| 后端框架 | Node.js + NestJS + TypeScript + Prisma (ORM) | NestJS 模块化架构适合多模块 SaaS |
+| 数据库 | MySQL 8.0（主库）+ Redis（缓存/队列） | 成熟稳定，生态完善 |
+| 对象存储 | 阿里云 OSS / AWS S3 | 图片、设计图、合同文件存储 |
+| 搜索引擎 | Elasticsearch（订单、客户、物料全文检索） | V1.1+ 引入 |
+| 实时通信 | WebSocket（Socket.io） | 通知推送、生产状态变更 |
+| AI 服务 | ControlNet + Stable Diffusion（GPU 服务器 / 云 API） | V1.2+ 引入 |
+| 部署 | Docker + Kubernetes，阿里云/腾讯云 | 容器化标准部署 |
+
+> **技术选型决策记录：** 2D 画布引擎经过 Konva.js / Fabric.js / 手写 SVG 三方对比评估（详见《画布引擎技术选型分析报告》），Konva.js 以加权总分 9.0/10 胜出。核心理由：① 场景图架构与 Cell 递归树天然对齐；② 官方维护 Window Frame Designer 示例；③ AVADA MEDIA 行业验证；④ 多层渲染 + 脏区域检测保证性能扩展性。迁移策略采用渐进式：Sprint 1 替换渲染层，Sprint 2 起在 Konva.js 基础上开发新功能。
+
+### 2.8 北极星指标分解体系 (V5.4 新增)
+
+北极星指标（**有效订单创建数**）需要分解为可追踪的先行指标（Leading Indicators），以便团队在日常工作中监控产品健康度。
+
+```
+北极星：有效订单创建数
+├── 激活指标
+│   ├── 周新增注册用户数
+│   ├── 注册→1单转化率（目标 ≥40%）
+│   └── 首单创建时间（目标 ≤30分钟）
+├── 活跃指标
+│   ├── 周活跃设计数（至少完成 1 次设计的用户数）
+│   ├── 单用户周均设计数（目标 ≥5）
+│   └── 算料完成率（设计⇒算料转化率，目标 ≥80%）
+├── 质量指标
+│   ├── 订单变更率（目标 ≤10%）
+│   ├── 设计返工率（因设计错误导致的返工，目标 ≤2%）
+│   └── 用户满意度 NPS（目标 ≥40）
+└── 商业指标
+    ├── 付费转化率（免费⇒付费，目标 ≥5%）
+    ├── 月留存率（目标 ≥90%）
+    └── ARPU（单用户平均收入，目标 ≥¥30/月）
+```
+
+### 2.9 端到端核心业务流程 (V5.4 新增)
+
+以下三个 Mermaid 流程图描述了系统最核心的跨模块业务链路。
+
+#### 2.9.1 流程一：从设计到生产的完整链路
+
+```mermaid
+flowchart LR
+    A["客户需求\n模块 13: CRM"] --> B["画图设计\n模块 7: 画图核心"]
+    B --> C["算料报价\n模块 8: 算料引擎"]
+    C --> D["创建订单\n模块 6: 订单管理"]
+    D --> E["生成 BOM\n模块 9: 生产管理"]
+    E --> F["生产排程\n模块 9: 甘特图"]
+    F --> G["下料优化\n模块 9: 下料算法"]
+    G --> H["车间生产\n扫码计件"]
+    H --> I["质量检验\n模块 12: QC"]
+    I --> J["入库发货\n模块 11: 仓库"]
+    J --> K["安装验收\n模块 15: 安装售后"]
+
+    style A fill:#e8f5e9
+    style D fill:#fff3e0
+    style H fill:#e3f2fd
+    style K fill:#fce4ec
+```
+
+#### 2.9.2 流程二：订单全生命周期
+
+```mermaid
+stateDiagram-v2
+    [*] --> 意向单: 客户咨询
+    意向单 --> 报价单: 设计完成→算料报价
+    报价单 --> 合同单: 客户确认→签约收款
+    合同单 --> 生产中: 下单到工厂
+    生产中 --> 待发货: 生产完成→QC通过
+    待发货 --> 已发货: 物流发出
+    已发货 --> 安装中: 到达现场
+    安装中 --> 待验收: 安装完成
+    待验收 --> 已完成: 客户签字验收
+    已完成 --> [*]
+
+    报价单 --> 已取消: 客户放弃
+    合同单 --> 变更中: 客户要求变更
+    变更中 --> 合同单: 变更完成
+    生产中 --> 退款中: 客户申请退款
+    安装中 --> 售后处理: 发现问题
+    售后处理 --> 安装中: 问题解决
+```
+
+#### 2.9.3 流程三：采购闭环
+
+```mermaid
+flowchart TD
+    A["库存预警\n库存 < 安全库存"] --> B["智能采购建议\n模块 10"]
+    B --> C["创建采购单"]
+    C --> D{"金额 ≥ 5000元?"}
+    D -- 是 --> E["主管审批"]
+    D -- 否 --> F["自动审批"]
+    E --> G["发送给供应商"]
+    F --> G
+    G --> H["供应商发货"]
+    H --> I["到货检验\n模块 12: IQC"]
+    I --> J{"检验通过?"}
+    J -- 是 --> K["入库\n模块 11: 仓库"]
+    J -- 否 --> L["退货/换货"]
+    L --> G
+    K --> M["财务付款\n模块 14"]
+
+    style A fill:#ffebee
+    style K fill:#e8f5e9
+    style M fill:#fff3e0
+```
+
+### 2.10 画图模块数据模型统一声明 (V5.4 新增)
+
+> **重要声明：** 本文档第 4 章定义的 `design_data_json` Schema（扁平数组结构）为前后端数据交换的唯一标准。`docs/画图模块_可执行规格书.md` 中定义的递归树形结构（`WindowUnit` → `Frame` → `Opening` → `childOpenings[]`）为前端渲染层的内部实现结构，不作为 API 契约。两者的映射关系如下：
+>
+> | PRD 第 4 章 (API 契约) | 可执行规格书 (前端内部) | 映射说明 |
+> | :--- | :--- | :--- |
+> | `design_data_json.frame` | `WindowUnit.frame` | 一对一映射 |
+> | `design_data_json.mullions[]` | `Opening.mullions[]`（递归收集） | 前端保存时将递归树展平为数组 |
+> | `design_data_json.sashes[]` | `Opening.sash`（递归收集） | 前端保存时将递归树展平为数组 |
+> | `design_data_json.glasses[]` | `Sash.glassPane` + `Opening.glassPane` | 前端保存时将递归树展平为数组 |
+> | `sash.openDirection`（10种中文枚举） | `Sash.openingType`（14种英文枚举） | 前端维护双向映射表 |
+> | 未定义 | `Hardware` 接口 | V1.1 后端补充五金件字段 |
+>
+> 前端开发人员应使用可执行规格书的 TypeScript 接口进行编码，并在 API 层（`save`/`load`）实现"递归树 ↔ 扁平数组"的双向转换。
+>
+> **枚举值双向映射表（openDirection ↔ openingType）：**
+>
+> | PRD `sash.openDirection` | 规格书 `Sash.openingType` | 说明 |
+> | :--- | :--- | :--- |
+> | 左开 | `LEFT_CASEMENT` | 左侧铰链，向内/外开启 |
+> | 右开 | `RIGHT_CASEMENT` | 右侧铰链，向内/外开启 |
+> | 左外开 | `LEFT_CASEMENT_OUT` | 左侧铰链，向外开启 |
+> | 右外开 | `RIGHT_CASEMENT_OUT` | 右侧铰链，向外开启 |
+> | 上悬 | `TOP_HUNG` | 顶部铰链，向外开启 |
+> | 下悬 | `BOTTOM_HUNG` | 底部铰链，向内开启 |
+> | 内开内倒 | `TILT_AND_TURN` | 双模式：内开 + 内倒 |
+> | 推拉左 | `SLIDING_LEFT` | 向左推拉 |
+> | 推拉右 | `SLIDING_RIGHT` | 向右推拉 |
+> | 固定 | `FIXED` | 不可开启 |
+> | — | `TOP_CASEMENT` | PRD 暂未定义，V1.1 补充 |
+> | — | `BOTTOM_CASEMENT` | PRD 暂未定义，V1.1 补充 |
+> | — | `PIVOT_HORIZONTAL` | PRD 暂未定义，V1.1 补充 |
+> | — | `PIVOT_VERTICAL` | PRD 暂未定义，V1.1 补充 |
+>
+> **递归树 → 扁平数组转换伪代码：**
+>
+> ```typescript
+> function flattenCellTree(root: Opening): DesignDataJson {
+>   const mullions: Mullion[] = [];
+>   const sashes: Sash[] = [];
+>   const glasses: Glass[] = [];
+>
+>   function traverse(cell: Opening, depth: number) {
+>     if (cell.mullions) {
+>       for (const m of cell.mullions) {
+>         mullions.push({
+>           id: m.id,
+>           direction: m.direction,  // 'horizontal' | 'vertical'
+>           position: m.position,    // 相对于父Cell的偏移(mm)
+>           parentCellId: cell.id
+>         });
+>       }
+>     }
+>     if (cell.sash) {
+>       sashes.push({
+>         id: cell.sash.id,
+>         cellId: cell.id,
+>         openDirection: mapOpeningTypeToDirection(cell.sash.openingType),
+>         handlePosition: cell.sash.handleSide
+>       });
+>     }
+>     if (cell.glassPane) {
+>       glasses.push({
+>         id: cell.glassPane.id,
+>         cellId: cell.id,
+>         type: cell.glassPane.glassType,
+>         thickness: cell.glassPane.thickness
+>       });
+>     }
+>     if (cell.childOpenings) {
+>       for (const child of cell.childOpenings) {
+>         traverse(child, depth + 1);
+>       }
+>     }
+>   }
+>
+>   traverse(root, 0);
+>   return { frame: root.frame, mullions, sashes, glasses };
+> }
+> ```
 
 ---
 
@@ -763,7 +945,7 @@
 
 | 规范项 | 统一标准 |
 | :--- | :--- |
-| **主键** | 所有表的主键统一为 `xxx_id`，类型为 `VARCHAR(36)`，存储 UUID |
+| **主键** | 所有表的主键字段名采用 `{表名缩写}_id` 格式（如 `tenant_id`、`order_id`、`user_id`），类型为 `VARCHAR(36)`，存储 UUID v4。在 API 响应中统一使用 `id` 作为资源标识符的简写别名 |
 | **外键** | 所有外键字段命名为 `table_name_id`，例如 `user_id`、`customer_id` |
 | **状态字段** | 统一使用 `status` 作为主状态字段，`sub_status` 作为子状态字段，类型均为 `VARCHAR(50)` |
 | **布尔值** | 统一使用 `TINYINT(1)`，`1` 代表 `true`，`0` 代表 `false` |
@@ -1012,7 +1194,7 @@
 
 ### 4.12 完整示例：三扇平开窗
 
-### 4.13 Schema 字段联动规则 (V5.2 新增)
+### 4.13 Schema 字段联动规则 
 
 | 字段 A | 联动字段 B | 联动规则 | 示例 |
 | :--- | :--- | :--- | :--- |
@@ -1574,7 +1756,7 @@ URL: 从画图页面点击"渲染 → 3D渲染"进入
 
 ### 7.10 画图渲染“黄金标准”用户体验（V5.1 新增）
 
-### 7.11 微观交互定义 (V5.2 新增)
+### 7.11 微观交互定义 
 
 #### 7.11.1 控制点交互 (Control Points)
 
@@ -1610,9 +1792,9 @@ graph TD
 | **拖拽中** | 实时计算"幽灵"预览的新位置，并进行画布业务约束检查（如最小分格尺寸）。 |
 | **结束拖拽** | 如果最终位置合法，则更新 `mullion.position`，并递归更新所有受影响的区域、扇、玻璃的尺寸和位置。创建一个新的撤销/恢复历史记录。 |
 
-### 7.12 2D 到 3D 映射规则 (V5.2 新增)
+### 7.12 2D 到 3D 映射规则 
 
-### 7.13 导出与打印规格 (V5.2 新增)
+### 7.13 导出与打印规格 
 
 #### 7.13.1 导出格式
 
@@ -1646,7 +1828,7 @@ graph TD
 
 在订单详情页，提供"批量导出"按钮，允许用户勾选该订单下的多个窗型，并选择一种格式（PNG/PDF/DXF）进行批量导出，打包为一个 ZIP 文件下载。
 
-### 7.14 异常与边界情况处理 (V5.2 新增)
+### 7.14 异常与边界情况处理 
 
 | 场景 | 系统行为 | 用户提示 |
 | :--- | :--- | :--- |
@@ -1656,9 +1838,9 @@ graph TD
 | **浏览器标签页关闭** | 监听 `beforeunload` 事件，如果画布有未保存的修改，则弹出浏览器原生确认框。 | “您有未保存的修改，确定要离开吗？” |
 | **权限不足** | 用户尝试执行其角色无权访问的操作（如删除一个已锁定的设计）。 | 按钮置灰，或点击后弹窗提示：“您没有执行此操作的权限。” |
 
-### 7.15 状态管理细节 (V5.2 新增)
+### 7.15 状态管理细节 
 
-### 7.16 渲染精确参数与性能指标 (V5.2 新增)
+### 7.16 渲染精确参数与性能指标 
 
 #### 7.16.1 渲染精确参数
 
@@ -1871,24 +2053,42 @@ graph TD
 #### 8.3.6 EBNF 语法定义 (V5.3 新增)
 
 ```ebnf
-formula_set   ::= "{" { string_literal ":" expression } "," "}"
+(* WindoorFormula DSL 完整语法定义 *)
 
-expression    ::= term { ("+" | "-") term }
-term          ::= factor { ("*" | "/") factor }
-factor        ::= number_literal | variable | function_call | "(" expression ")"
+formula_set       ::= "{" { string_literal ":" expression } "," "}"
 
-function_call ::= identifier "(" [ expression { "," expression } ] ")"
+(* 表达式优先级：三元 < 逻辑OR < 逻辑AND < 比较 < 加减 < 乘除 < 一元 < 原子 *)
+expression        ::= ternary_expr
+ternary_expr      ::= or_expr [ "?" expression ":" expression ]
+or_expr           ::= and_expr { "||" and_expr }
+and_expr          ::= comparison_expr { "&&" comparison_expr }
+comparison_expr   ::= additive_expr { ( ">" | "<" | ">=" | "<=" | "==" | "!=" ) additive_expr }
+additive_expr     ::= multiplicative_expr { ( "+" | "-" ) multiplicative_expr }
+multiplicative_expr ::= unary_expr { ( "*" | "/" | "%" ) unary_expr }
+unary_expr        ::= [ "!" | "-" ] primary_expr
+primary_expr      ::= number_literal
+                    | string_literal
+                    | boolean_literal
+                    | list_literal
+                    | function_call
+                    | variable
+                    | "(" expression ")"
 
-variable      ::= identifier { "." identifier }
+function_call     ::= identifier "(" [ expression { "," expression } ] ")"
+variable          ::= identifier { "." identifier }
+list_literal      ::= "[" [ expression { "," expression } ] "]"
+boolean_literal   ::= "true" | "false"
 
-identifier    ::= (letter | "_") { letter | digit | "_" }
-string_literal::= '"' ( { any_character_except_quote } ) '"'
-number_literal::= ["-"] ( "0" | (digit_1_9 { digit }) ) [ "." { digit } ]
+identifier        ::= ( letter | "_" ) { letter | digit | "_" }
+string_literal    ::= '"' { any_character_except_quote } '"'
+number_literal    ::= [ "-" ] ( "0" | ( digit_1_9 { digit } ) ) [ "." digit { digit } ]
 
-letter        ::= "a".."z" | "A".."Z"
-digit         ::= "0".."9"
-digit_1_9     ::= "1".."9"
+letter            ::= "a".."z" | "A".."Z"
+digit             ::= "0".."9"
+digit_1_9         ::= "1".."9"
 ```
+
+> **说明：** 该 EBNF 完整覆盖了 8.3.3 节定义的所有运算符（四则、取模、比较、逻辑、三元）和 8.3.1 节定义的所有数据类型（Number、String、Boolean、List）。运算符优先级从低到高为：三元 → 逻辑OR → 逻辑AND → 比较 → 加减 → 乘除取模 → 一元取反/取负。
 
 #### 8.3.7 错误处理机制 (V5.3 新增)
 
@@ -1989,6 +2189,81 @@ digit_1_9     ::= "1".."9"
 | 算法 | BFD（Best Fit Decreasing）+ 列生成法 |
 | 目标 | 最大化材料利用率（目标 ≥ 90%） |
 
+**BFD + 余料复用算法伪代码（V5.4 新增）：**
+
+```python
+def cutting_optimize(demands: List[CutItem], stock_length: int, kerf: int = 5,
+                     remnants: List[Remnant] = []) -> CuttingPlan:
+    """
+    一维下料优化算法（BFD + 余料优先复用）
+    
+    Args:
+        demands:      所需下料尺寸列表 [{length, qty, label}]
+        stock_length: 标准原料长度 (mm)
+        kerf:         锯缝宽度 (mm)
+        remnants:     余料库已有余料 [{id, length}]
+    
+    Returns:
+        CuttingPlan: {切割方案[], 利用率, 余料列表, 废料列表}
+    """
+    MIN_REMNANT = 200  # 最小可用余料长度 (mm)
+    
+    # Step 1: 展开需求并按长度降序排列 (Decreasing)
+    pieces = []
+    for d in demands:
+        pieces.extend([d.length] * d.qty)
+    pieces.sort(reverse=True)
+    
+    # Step 2: 初始化可用原料（余料优先）
+    bars = []  # [{source: 'remnant'|'new', total_length, remaining, cuts: []}]
+    for r in sorted(remnants, key=lambda x: x.length):  # 余料按长度升序
+        bars.append({
+            'source': 'remnant', 'id': r.id,
+            'total_length': r.length, 'remaining': r.length, 'cuts': []
+        })
+    
+    # Step 3: BFD 贪心分配
+    for piece in pieces:
+        best_bar = None
+        best_waste = float('inf')
+        
+        # 优先在已有原料中找 Best Fit
+        for bar in bars:
+            waste = bar['remaining'] - piece - kerf
+            if waste >= 0 and waste < best_waste:
+                best_bar = bar
+                best_waste = waste
+        
+        if best_bar is None:
+            # 新开一根原料
+            best_bar = {
+                'source': 'new', 'id': None,
+                'total_length': stock_length, 'remaining': stock_length, 'cuts': []
+            }
+            bars.append(best_bar)
+        
+        best_bar['cuts'].append(piece)
+        best_bar['remaining'] -= (piece + kerf)
+    
+    # Step 4: 统计结果
+    plan = CuttingPlan()
+    for bar in bars:
+        if not bar['cuts']:  # 未使用的余料跳过
+            continue
+        used = sum(bar['cuts']) + kerf * len(bar['cuts'])
+        utilization = used / bar['total_length'] * 100
+        plan.add_bar(bar, utilization)
+        
+        if bar['remaining'] >= MIN_REMNANT:
+            plan.new_remnants.append(bar['remaining'])
+        elif bar['remaining'] > 0:
+            plan.waste.append(bar['remaining'])
+    
+    return plan
+```
+
+**算法复杂度：** O(n·m)，其中 n = 截取段总数，m = 原料根数。100 樘门窗场景下 n ≈ 2000，m ≈ 200，计算时间 < 1 秒。
+
 **下料优化结果展示：**
 
 ```
@@ -1998,6 +2273,41 @@ digit_1_9     ::= "1".."9"
 ───────────────────────────────────────────────
 总计: 3根原料, 平均利用率 79.4%, 余料 1根(3615mm)
 ```
+
+### 9.4 下料优化增强规格 (V5.4 新增)
+
+#### 9.4.1 余料管理与复用
+
+| 规则 | 说明 |
+| :--- | :--- |
+| 余料入库 | 下料完成后，余料 ≥ 最小可用长度（200mm）自动录入余料库，生成余料编号 |
+| 余料优先 | 下料算法先匹配余料库中的已有余料，再使用新原料 |
+| 余料老化 | 余料库存超过 90 天的余料标记为“建议处理”，提醒仓库管理员 |
+| 余料报废 | 余料长度 < 200mm 自动记录为废料，计入损耗统计 |
+
+#### 9.4.2 多材质并行下料
+
+同一订单可能涉及多种型材（框型材、扇型材、中梃型材、压条等），算法必须按材质分组并行计算：
+
+```
+输入: {
+  框型材_60系列: [{length: 2380, qty: 4}, {length: 1200, qty: 2}],
+  扇型材_60系列: [{length: 1800, qty: 4}, {length: 900, qty: 2}],
+  中梃_60系列:   [{length: 1150, qty: 2}],
+  压条:           [{length: 2380, qty: 8}, {length: 1200, qty: 4}]
+}
+输出: 每种材质独立的下料方案 + 汇总报告
+```
+
+#### 9.4.3 下料可视化交互
+
+| 功能 | 说明 |
+| :--- | :--- |
+| 水平条形图 | 每根原料显示为一个水平条，内部分段着色显示各截取段，余料部分用斜线填充 |
+| 颜色编码 | 不同订单/窗户的截取段用不同颜色区分，悬停显示详细信息 |
+| 手动调整 | 允许操作员手动拖拽调整截取段顺序（优先级低于算法结果） |
+| 导出打印 | 支持导出下料清单 PDF，包含条形图 + 明细表，可直接交给车间工人 |
+| 统计概览 | 总原料数、总利用率、总余料数、总废料数、成本估算（原料单价 × 数量） |
 
 ---
 
@@ -2475,15 +2785,68 @@ digit_1_9     ::= "1".."9"
 | 禁用/启用 | 禁用后该账号无法登录 |
 | 删除 | 软删除子账号 |
 
-### 18.3 打印模板编辑器（V5.0 新增）
+### 18.3 打印模板编辑器（V5.0 新增，V5.4 增强）
+
+#### 18.3.1 模板类型与用途
+
+| 模板类型 | 用途 | 默认纸张 | 关键内容 |
+| :--- | :--- | :--- | :--- |
+| 图纸模板 | 生产加工依据 | A4 | 门窗图纸 + 尺寸标注 + 型材明细 + 五金明细 |
+| 报价单模板 | 客户报价 | A4 | 公司信息 + 门窗图纸 + 价格明细 + 合计 |
+| 送货单模板 | 物流配送 | A4 | 收货人信息 + 货物清单 + 签收栏 |
+| 收据模板 | 财务凭证 | A5 | 付款信息 + 金额大小写 + 编号 |
+| 标签模板 | 产品标识 | 自定义 | 订单号条码 + 窗型 + 尺寸 + 客户名 |
+| 下料单模板 | 车间下料 | A4 | 下料图 + 型材明细 + 角度 + 数量 |
+
+#### 18.3.2 模板引擎技术方案
+
+| 项目 | 规格 |
+| :--- | :--- |
+| 渲染引擎 | 服务端基于 Puppeteer 将 HTML 模板渲染为 PDF |
+| 模板格式 | HTML + CSS + Handlebars 变量语法 |
+| 存储 | 模板 JSON 存储在数据库，包含布局、样式、变量绑定 |
+| 编辑器 | 前端可视化拖拽编辑器（基于 GrapesJS 或自研） |
+
+#### 18.3.3 变量体系
+
+**基础变量：**
+
+| 变量名 | 说明 | 示例值 |
+| :--- | :--- | :--- |
+| `{{公司名称}}` | 租户公司名 | 张三门窗店 |
+| `{{公司Logo}}` | 公司 Logo 图片 | `<img>` 标签 |
+| `{{订单号}}` | 订单编号 | FG20260301001 |
+| `{{客户名称}}` | 客户姓名 | 李四 |
+| `{{客户电话}}` | 客户手机号 | 138****8888 |
+| `{{客户地址}}` | 安装地址 | 广州市天河区... |
+| `{{创建日期}}` | 订单创建时间 | 2026-03-01 |
+| `{{交付日期}}` | 预计交付时间 | 2026-03-15 |
+| `{{总价}}` | 订单总金额 | ¥12,800.00 |
+| `{{已付款}}` | 已收款金额 | ¥6,400.00 |
+| `{{待付款}}` | 未收款金额 | ¥6,400.00 |
+
+**循环变量（用于明细表）：**
+
+```handlebars
+{{#each 门窗明细}}
+  窗号: {{this.序号}} | 窗型: {{this.窗型名称}} | 尺寸: {{this.宽}}×{{this.高}}mm
+  图纸: {{this.图纸图片}}  ← 自动截取画布渲染图
+  型材: {{this.型材明细}} | 玻璃: {{this.玻璃明细}} | 五金: {{this.五金明细}}
+  单价: {{this.单价}} | 数量: {{this.数量}} | 小计: {{this.小计}}
+{{/each}}
+```
+
+#### 18.3.4 编辑器布局系统
 
 | 功能 | 说明 |
 | :--- | :--- |
-| 模板类型 | 图纸模板、报价单模板、送货单模板、收据模板、标签模板 |
-| 编辑方式 | 可视化拖拽编辑器（类似简易版 Word） |
-| 变量插入 | 支持插入动态变量（如 `{客户名称}`、`{订单号}`、`{门窗图纸}`） |
-| 预览 | 实时预览打印效果 |
-| 导入/导出 | 支持导入/导出模板文件 |
+| 拖拽组件 | 文本框、图片框、表格、分割线、二维码/条码、变量插槽 |
+| 网格对齐 | 8px 网格吸附，确保元素对齐 |
+| 分区布局 | 页眉、页脚、内容区域三分区，页眉页脚每页重复 |
+| 多页支持 | 明细超过一页时自动分页，页眉页脚自动重复 |
+| 实时预览 | 右侧面板实时显示打印效果，支持填充样例数据 |
+| 导入/导出 | 支持导入/导出模板 JSON 文件，便于租户间共享 |
+| 系统预设 | 提供 6 套默认模板（每种类型一套），用户可基于预设修改 |
 
 ### 18.4 通知系统（V5.0 新增）
 
@@ -2509,6 +2872,40 @@ digit_1_9     ::= "1".."9"
 | 生产任务完成 | 车间主管 | 站内信 |
 | 客户跟进提醒 | 业务员 | 站内信 + 微信 |
 
+### 18.5 WebSocket 事件目录 (V5.4 新增)
+
+客户端通过 Socket.io 建立长连接，服务端通过以下事件向客户端推送实时数据。
+
+**连接约定：**
+
+```
+URL: wss://{domain}/ws
+认证: 连接时在 handshake 中携带 JWT Token
+心跳: 客户端每 30s 发送 ping，服务端响应 pong
+重连: 断线后指数退避重连，最大间隔 30s，最多重试 10 次
+房间: 每个租户自动加入 tenant:{tenantId} 房间
+```
+
+**服务端→客户端事件：**
+
+| 事件名 | 触发场景 | Payload 示例 | 前端响应 |
+| :--- | :--- | :--- | :--- |
+| `notification:new` | 新通知产生 | `{id, type, title, body, createdAt}` | 铃铛角标 +1，弹出 toast |
+| `order:status_changed` | 订单状态变更 | `{orderId, oldStatus, newStatus, operator}` | 刷新订单列表/详情页 |
+| `production:progress` | 生产进度更新 | `{orderId, taskId, progress, stage}` | 更新甘特图进度条 |
+| `inventory:alert` | 库存预警 | `{materialId, name, current, safetyStock}` | 弹出预警模态框 |
+| `design:saved` | 设计保存成功（他人） | `{designId, savedBy, savedAt}` | 提示“他人已保存，是否刷新” |
+| `approval:pending` | 新审批待处理 | `{type, id, applicant, amount}` | 审批待办角标 +1 |
+| `afterSale:assigned` | 售后工单分配 | `{ticketId, customerName, issue}` | 刷新售后 Kanban |
+
+**客户端→服务端事件：**
+
+| 事件名 | 场景 | Payload |
+| :--- | :--- | :--- |
+| `notification:read` | 标记通知已读 | `{notificationId}` |
+| `notification:read_all` | 全部标记已读 | `{}` |
+| `design:lock` | 请求锁定设计方案 | `{designId}` |
+| `design:unlock` | 释放设计方案锁 | `{designId}` |
 
 ---
 
@@ -3112,19 +3509,30 @@ Excel 导出。
 
 #### DELETE `/api/v1/users/{id}`
 
-### 19.17 文件上传接口（V5.0 新增）
+### 19.17 文件上传接口（V5.0 新增，V5.4 增强）
 
-#### POST `/api/v1/files/upload`
+**存储架构：** 所有文件存储在阿里云 OSS，通过 CDN 加速分发。小文件（≤10MB）走服务端中转，大文件（>10MB）走客户端 OSS 直传。
 
-统一文件上传接口（`multipart/form-data`）。
+**文件类型白名单：**
 
-**请求参数：**
+| 类型 | 允许扩展名 | 最大大小 |
+| :--- | :--- | :--- |
+| 图片 | `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg` | 10MB |
+| 文档 | `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx` | 20MB |
+| 设计文件 | `.json`（设计方案）, `.dxf` | 50MB |
+| 模板 | `.json`（窗型模板） | 5MB |
+
+服务端对所有上传文件执行：① 扩展名白名单检查；② MIME 类型验证（读取文件头魔数，不信任 Content-Type）；③ 文件大小检查；④ 病毒扫描（ClamAV）。
+
+#### 方案一：服务端中转上传（≤10MB）
+
+**POST** `/api/v1/files/upload`（`multipart/form-data`）
 
 | 参数 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | file | File | 是 | 文件（最大 10MB） |
-| type | string | 是 | 文件类型：image/document/template |
-| entityType | string | 否 | 关联实体类型 |
+| type | string | 是 | 文件类型：`image` / `document` / `template` / `design` |
+| entityType | string | 否 | 关联实体类型（`order` / `customer` / `design`） |
 | entityId | string | 否 | 关联实体 ID |
 
 **响应：**
@@ -3133,13 +3541,43 @@ Excel 导出。
   "code": 201,
   "data": {
     "fileId": "file_001",
-    "url": "https://cdn.windoorcraft.com/uploads/file_001.png",
+    "url": "https://cdn.windoorcraft.com/uploads/tenant_001/2026/03/file_001.png",
+    "thumbnailUrl": "https://cdn.windoorcraft.com/uploads/tenant_001/2026/03/file_001_thumb.png",
     "fileName": "photo.png",
     "fileSize": 1024000,
     "mimeType": "image/png"
   }
 }
 ```
+
+> **OSS 存储路径规范：** `/{tenantId}/{YYYY}/{MM}/{fileId}.{ext}`，按租户和月份分目录，便于生命周期管理和成本核算。
+
+#### 方案二：OSS 直传（>10MB 大文件）
+
+**步骤 1：** 获取上传凭证
+
+**POST** `/api/v1/files/presign`
+
+```json
+// 请求
+{"fileName": "design_export.dxf", "fileSize": 15000000, "type": "design"}
+// 响应
+{
+  "code": 200,
+  "data": {
+    "uploadUrl": "https://oss-bucket.oss-cn-hangzhou.aliyuncs.com/...",
+    "fileId": "file_002",
+    "headers": {"Content-Type": "application/octet-stream", "x-oss-callback": "..."},
+    "expiresIn": 3600
+  }
+}
+```
+
+**步骤 2：** 客户端直接 PUT 到 OSS `uploadUrl`
+
+**步骤 3：** OSS 回调服务端确认，服务端写入数据库记录
+
+**前端上传组件规格：** 拖拽上传 + 点击上传，显示进度条和百分比，支持取消上传，上传完成后显示缩略图预览。
 
 ### 19.18 批量操作接口（V5.0 新增）
 
@@ -3208,21 +3646,111 @@ Excel 导出。
 
 获取智能采购建议。
 
+**响应示例：**
+```json
+{
+  "code": 200,
+  "data": [
+    {
+      "materialId": "mat_001",
+      "materialName": "60系列框型材",
+      "currentStock": 50,
+      "safetyStock": 100,
+      "suggestedQty": 200,
+      "reason": "库存低于安全线，且未来7天有3笔订单需求",
+      "estimatedCost": 12000.00,
+      "recommendedSupplier": { "id": "sup_001", "name": "南海铝业" }
+    }
+  ]
+}
+```
+
 #### POST `/api/v1/procurement/orders`
 
 创建采购单。
+
+**请求示例：**
+```json
+{
+  "supplierId": "sup_001",
+  "items": [
+    { "materialId": "mat_001", "qty": 200, "unitPrice": 60.00, "unit": "根" },
+    { "materialId": "mat_005", "qty": 100, "unitPrice": 45.00, "unit": "根" }
+  ],
+  "expectedDeliveryDate": "2026-03-15",
+  "remark": "紧急采购，请加急发货"
+}
+```
+
+**响应示例：**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": "po_20260302001",
+    "status": "pending_approval",
+    "totalAmount": 16500.00,
+    "createdAt": "2026-03-02T10:30:00Z"
+  }
+}
+```
 
 #### PUT `/api/v1/procurement/orders/{id}/approve`
 
 审批采购单。
 
+**请求示例：**
+```json
+{
+  "action": "approve",
+  "comment": "同意采购，价格合理"
+}
+```
+
 #### GET `/api/v1/procurement/suppliers`
 
-获取供应商列表。
+获取供应商列表。支持分页、排序、筛选。
+
+**参数：** `page`, `pageSize`, `keyword`, `rating`（A/B/C/D）
+
+**响应示例：**
+```json
+{
+  "code": 200,
+  "data": {
+    "list": [
+      {
+        "id": "sup_001",
+        "name": "南海铝业",
+        "contact": "张经理",
+        "phone": "13800138001",
+        "rating": "A",
+        "materials": ["框型材", "扁型材", "中梃"],
+        "avgDeliveryDays": 3
+      }
+    ],
+    "total": 15,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
 
 #### POST `/api/v1/procurement/suppliers`
 
 新增供应商。
+
+**请求示例：**
+```json
+{
+  "name": "南海铝业",
+  "contact": "张经理",
+  "phone": "13800138001",
+  "address": "广东省佛山市南海区",
+  "materials": ["mat_001", "mat_005"],
+  "bankAccount": "6222021234567890123"
+}
+```
 
 ### 19.21 质量管理接口（V5.0 新增）
 
@@ -3230,13 +3758,57 @@ Excel 导出。
 
 创建质量检验单。
 
+**请求示例：**
+```json
+{
+  "type": "IQC",
+  "relatedId": "po_20260302001",
+  "items": [
+    {
+      "materialId": "mat_001",
+      "checkItem": "壁厚",
+      "standard": "1.4mm ± 0.05mm",
+      "actualValue": "1.42mm",
+      "result": "pass"
+    },
+    {
+      "materialId": "mat_001",
+      "checkItem": "表面氧化膜",
+      "standard": "≥ 10μm",
+      "actualValue": "12μm",
+      "result": "pass"
+    }
+  ],
+  "overallResult": "pass",
+  "inspector": "李工"
+}
+```
+
 #### GET `/api/v1/qc/inspections`
 
 获取检验单列表。
 
+**参数：** `page`, `pageSize`, `type`（IQC/IPQC/FQC）, `result`（pass/fail）, `startDate`, `endDate`
+
 #### GET `/api/v1/qc/trace/{orderId}`
 
 获取订单的完整质量追溯链。
+
+**响应示例：**
+```json
+{
+  "code": 200,
+  "data": {
+    "orderId": "ORD20260301001",
+    "traceChain": [
+      { "stage": "IQC", "date": "2026-03-02", "result": "pass", "inspector": "李工" },
+      { "stage": "IPQC", "date": "2026-03-05", "result": "pass", "inspector": "王工" },
+      { "stage": "FQC", "date": "2026-03-08", "result": "pass", "inspector": "赵工" }
+    ],
+    "qualityScore": 98
+  }
+}
+```
 
 ### 19.22 安装售后接口（V5.0 新增）
 
@@ -3244,29 +3816,91 @@ Excel 导出。
 
 获取安装任务列表。
 
+**参数：** `page`, `pageSize`, `status`（pending/in_progress/completed）, `installerId`, `startDate`, `endDate`
+
 #### POST `/api/v1/installations`
 
 创建安装任务。
 
+**请求示例：**
+```json
+{
+  "orderId": "ORD20260301001",
+  "installerId": "user_installer_01",
+  "scheduledDate": "2026-03-10",
+  "scheduledTime": "09:00-12:00",
+  "address": "广州市天河区某小区3栋501",
+  "contactName": "王先生",
+  "contactPhone": "13800138000",
+  "remark": "客户要求上午安装"
+}
+```
+
 #### PUT `/api/v1/installations/{id}/start`
 
-开始安装。
+开始安装。安装工人到达现场后调用。
+
+**请求示例：**
+```json
+{
+  "startPhoto": "https://oss.example.com/install/start_001.jpg",
+  "gpsLocation": { "lat": 23.1291, "lng": 113.2644 }
+}
+```
 
 #### PUT `/api/v1/installations/{id}/complete`
 
-完成安装（含签名和照片）。
+完成安装（含客户签名和完工照片）。
+
+**请求示例：**
+```json
+{
+  "completionPhotos": [
+    "https://oss.example.com/install/done_001.jpg",
+    "https://oss.example.com/install/done_002.jpg"
+  ],
+  "customerSignature": "https://oss.example.com/install/sign_001.png",
+  "customerRating": 5,
+  "customerComment": "安装师傅很专业，清理很干净"
+}
+```
 
 #### GET `/api/v1/after-sales`
 
 获取售后工单列表。
 
+**参数：** `page`, `pageSize`, `status`（open/processing/resolved/closed）, `type`（repair/replace/complaint）, `priority`（low/medium/high/urgent）
+
 #### POST `/api/v1/after-sales`
 
 创建售后工单。
 
+**请求示例：**
+```json
+{
+  "orderId": "ORD20260301001",
+  "type": "repair",
+  "priority": "high",
+  "description": "客户反映推拉窗滑动不顺畅，有卡顿感",
+  "photos": ["https://oss.example.com/aftersales/issue_001.jpg"],
+  "customerPhone": "13800138000"
+}
+```
+
 #### PUT `/api/v1/after-sales/{id}/status`
 
 更新工单状态。
+
+**请求示例：**
+```json
+{
+  "status": "resolved",
+  "resolution": "更换滑轮组件，调整轨道间距",
+  "cost": 150.00,
+  "costType": "warranty",
+  "completionPhotos": ["https://oss.example.com/aftersales/fix_001.jpg"]
+}
+```
 
 ### 19.23 报表接口（V5.0 新增）
 
@@ -3589,7 +4223,7 @@ Excel 导出。
 
 ---
 
-**文档版本：V5.2 Complete**
+**文档版本：V5.4 Complete**
 **最后更新：2026-03-02**
 **状态：完整自包含，可交付开发**
 **总章节：21 章（画图模块含 16 个子章节）**
@@ -3597,3 +4231,383 @@ Excel 导出。
 **总数据表：41 张**
 **总 API：23 组**
 
+
+### 3.44 画布数据与数据模型映射规则 (V5.4 新增)
+
+为实现画布设计数据的持久化存储、关系查询和后端算料，`design_data_json` (画布 Schema) 与关系型数据表之间需建立明确的双向映射和转换规则。
+
+**核心原则**：画布的 `design_data_json` 是前端渲染和交互的“唯一事实来源”，而数据库中的范式化表结构是后端业务逻辑、数据分析和持久化的“唯一事实来源”。二者通过 API 层的转换服务进行同步。
+
+#### 3.44.1 映射关系总览
+
+| 画布 JSON 对象 (design_data_json) | 数据库核心表 | 映射关系说明 |
+| :--- | :--- | :--- |
+| `canvas` (根对象) | `window_design` | 存储设计的元数据，如整体宽高、名称、所属订单等。`design_data_json` 完整存储于 `window_design.design_data_json` 字段，作为快照和历史记录。 |
+| `canvas.items[]` (数组) | `window_item` | 每个 `item` 代表一个独立的窗/门单元（如单开窗、固定玻璃），映射为 `window_item` 表的一行记录。 |
+| `item.profiles[]` (型材数组) | `item_profile` | 窗/门单元中的每一根型材（上、下、左、右、中梃）映射为 `item_profile` 表的一行记录。 |
+| `item.glass` (玻璃对象) | `item_glass` | 窗/门单元中的玻璃信息映射为 `item_glass` 表的一行记录。 |
+| `item.hardware[]` (五金数组) | `item_hardware` | 窗/门单元中的每个五金件映射为 `item_hardware` 表的一行记录。 |
+| `item.sub_components[]` (附加件数组) | `item_sub_component` | 压线、盖板、防水胶等附加件映射为 `item_sub_component` 表的一行记录。 |
+
+#### 3.44.2 转换伪代码
+
+**1. 从 `design_data_json` 到数据库 (保存/更新设计时)**
+
+```typescript
+// Pseudocode: Service to convert and save design data from JSON to DB
+async function saveDesignFromJSON(designId: string, jsonData: DesignDataJSON): Promise<void> {
+  // 1. Start a database transaction
+  await db.transaction(async (tx) => {
+    // 2. Update the main design record, storing the full JSON as a snapshot
+    await tx.window_design.update({
+      where: { design_id: designId },
+      data: {
+        name: jsonData.canvas.name,
+        width: jsonData.canvas.width,
+        height: jsonData.canvas.height,
+        design_data_json: jsonData, // Store the complete JSON
+        // ... other metadata
+      },
+    });
+
+    // 3. Clear existing normalized data for this design to ensure idempotency
+    await tx.window_item.deleteMany({ where: { design_id: designId } });
+    // (Also delete from item_profile, item_glass, item_hardware, etc.)
+
+    // 4. Iterate through canvas items and insert into normalized tables
+    for (const item of jsonData.canvas.items) {
+      const createdItem = await tx.window_item.create({
+        data: {
+          item_id: item.id, // Use ID from JSON
+          design_id: designId,
+          type: item.type, // 'casement_window', 'fixed_glass', etc.
+          width: item.width,
+          height: item.height,
+          // ... other item properties
+        },
+      });
+
+      // 5. Insert profiles, glass, hardware for each item
+      for (const profile of item.profiles) {
+        await tx.item_profile.create({ data: { ...profile, item_id: createdItem.item_id } });
+      }
+      if (item.glass) {
+        await tx.item_glass.create({ data: { ...item.glass, item_id: createdItem.item_id } });
+      }
+      for (const hw of item.hardware) {
+        await tx.item_hardware.create({ data: { ...hw, item_id: createdItem.item_id } });
+      }
+    }
+  });
+}
+```
+
+**2. 从数据库到 `design_data_json` (加载设计到画布时)**
+
+```typescript
+// Pseudocode: Service to load and reconstruct design JSON from DB
+async function loadDesignToJSON(designId: string): Promise<DesignDataJSON> {
+  // 1. Fetch the main design record, which contains the JSON snapshot
+  const design = await db.window_design.findUnique({ where: { design_id: designId } });
+
+  // 2. **Golden Rule**: Always prefer the stored JSON snapshot if it exists.
+  // This ensures that what the user last saved is exactly what they see.
+  // The normalized data is for backend use (reporting, analytics, etc.).
+  if (design && design.design_data_json) {
+    return design.design_data_json as DesignDataJSON;
+  }
+
+  // 3. (Fallback/Reconstruction Logic - if snapshot is missing or corrupted)
+  // This logic is more complex and should be avoided in the primary workflow.
+  const itemsFromDb = await db.window_item.findMany({ where: { design_id: designId } });
+  const reconstructedItems = [];
+
+  for (const item of itemsFromDb) {
+    const profiles = await db.item_profile.findMany({ where: { item_id: item.item_id } });
+    const glass = await db.item_glass.findUnique({ where: { item_id: item.item_id } });
+    const hardware = await db.item_hardware.findMany({ where: { item_id: item.item_id } });
+
+    reconstructedItems.push({
+      id: item.item_id,
+      type: item.type,
+      ...item,
+      profiles,
+      glass,
+      hardware,
+    });
+  }
+
+  return {
+    canvas: {
+      name: design.name,
+      width: design.width,
+      height: design.height,
+      items: reconstructedItems,
+    },
+  };
+}
+```
+
+### 9.3 下料优化
+
+**一维下料优化算法：**
+
+| 项目 | 规格 |
+| :--- | :--- |
+| 输入 | 标准支长（如 6000mm）、所需下料尺寸列表、锯缝宽度（默认 5mm） |
+| 输出 | 最优切割方案（每根原料的切割排列）、材料利用率、余料列表 |
+| 约束 | 余料 ≥ 最小可用长度（默认 200mm）才记录为余料 |
+| 算法 | BFD（Best Fit Decreasing）+ 余料优先复用 |
+| 目标 | 最大化材料利用率（目标 ≥ 95%） |
+
+**BFD + 余料复用算法伪代码 (V5.4 新增):**
+
+```python
+from typing import List, Dict, Tuple
+
+# --- 数据结构定义 ---
+
+@dataclass
+class CutRequest:
+    material_code: str  # 物料编码
+    length: int         # 需要的长度
+    quantity: int       # 需要的数量
+
+@dataclass
+class StockMaterial:
+    material_code: str
+    length: int
+    source: str # 'new_stock' or 'remnant'
+    source_id: str # 原料ID或余料ID
+
+@dataclass
+class CutSolution:
+    cuts: List[int]     # 在这根原料上切割的长度列表
+    remaining_length: int # 剩余长度
+
+@dataclass
+class CuttingPlan:
+    material_code: str
+    solutions: Dict[str, CutSolution] # Key: source_id
+    utilization_rate: float
+    new_remnants: List[StockMaterial]
+    unfulfilled_cuts: List[CutRequest]
+
+def cutting_stock_optimization(
+    requests: List[CutRequest],
+    stock_length: int,
+    available_remnants: List[StockMaterial],
+    kerf_width: int = 5, # 锯缝宽度
+    min_remnant_size: int = 200 # 最小可复用余料尺寸
+) -> CuttingPlan:
+    """
+    一维下料优化算法 (BFD + 余料优先复用)
+    核心思路：
+    1. 将所有待切尺寸（考虑锯缝）按从大到小排序。
+    2. 优先从现有余料中寻找最佳匹配（Best Fit）。
+    3. 如果余料不满足，再从新的标准原料中切割。
+    4. 记录每根原料的切割方案和新产生的余料。
+    """
+
+    # 1. 展开所有请求并加上锯缝宽度
+    demands = []
+    for req in requests:
+        demands.extend([req.length + kerf_width] * req.quantity)
+    
+    # 2. BFD 核心：按长度降序排序
+    demands.sort(reverse=True)
+
+    # 3. 初始化原料箱（bins），优先使用余料
+    bins: List[StockMaterial] = sorted(available_remnants, key=lambda r: r.length)
+    solutions: Dict[str, CutSolution] = {}
+    used_stock_count = 0
+    total_stock_length = sum(r.length for r in available_remnants)
+
+    # 4. 遍历每一个待切尺寸
+    for demand in demands:
+        placed = False
+        best_fit_bin_index = -1
+        min_remaining = float('inf')
+
+        # 4.1 优先在现有 bins (余料+已开的新料) 中寻找最佳匹配
+        for i, bin_material in enumerate(bins):
+            remaining = bin_material.length - demand
+            if remaining >= 0 and remaining < min_remaining:
+                min_remaining = remaining
+                best_fit_bin_index = i
+        
+        # 4.2 如果在现有 bins 中找到位置
+        if best_fit_bin_index != -1:
+            bin_to_cut = bins[best_fit_bin_index]
+            bin_to_cut.length -= demand
+            solutions.setdefault(bin_to_cut.source_id, CutSolution(cuts=[], remaining_length=0)).cuts.append(demand - kerf_width)
+            placed = True
+        
+        # 4.3 如果现有 bins 都不够用，则开启一根新原料
+        if not placed:
+            if stock_length < demand:
+                # TODO: 处理无法满足的请求
+                continue # 跳过这个无法满足的尺寸
+
+            used_stock_count += 1
+            total_stock_length += stock_length
+            new_bin_id = f"new_stock_{used_stock_count}"
+            new_bin = StockMaterial(
+                material_code=requests[0].material_code, 
+                length=stock_length - demand, 
+                source='new_stock', 
+                source_id=new_bin_id
+            )
+            bins.append(new_bin)
+            solutions[new_bin_id] = CutSolution(cuts=[demand - kerf_width], remaining_length=0)
+
+    # 5. 后处理：计算利用率和新余料
+    new_remnants = []
+    total_used_length = sum(d for d in demands)
+
+    for bin_material in bins:
+        solutions[bin_material.source_id].remaining_length = bin_material.length
+        if bin_material.length >= min_remnant_size:
+            new_remnants.append(StockMaterial(
+                material_code=bin_material.material_code,
+                length=bin_material.length,
+                source='remnant',
+                source_id=f"rem_{bin_material.source_id}" # 生成新余料ID
+            ))
+
+    utilization_rate = (total_used_length / total_stock_length) if total_stock_length > 0 else 0
+
+    return CuttingPlan(
+        material_code=requests[0].material_code,
+        solutions=solutions,
+        utilization_rate=utilization_rate,
+        new_remnants=new_remnants,
+        unfulfilled_cuts=[] # TODO
+    )
+
+```
+
+### 19.24 供应商管理 API (V5.4 新增)
+
+#### POST /api/v1/suppliers
+- **说明**: 创建一个新的供应商。
+- **请求体**: `Supplier` 对象 (不含 `supplier_id`, `created_at`, `updated_at`)
+- **响应**: `201 Created`, 返回完整的 `Supplier` 对象。
+
+#### GET /api/v1/suppliers
+- **说明**: 获取供应商列表，支持分页、筛选和排序。
+- **查询参数**: `page`, `pageSize`, `sort`, `order`, `name` (模糊查询), `level`
+- **响应**: `200 OK`, 返回供应商对象数组和分页信息。
+
+#### GET /api/v1/suppliers/{id}
+- **说明**: 获取单个供应商的详细信息。
+- **响应**: `200 OK`, 返回完整的 `Supplier` 对象。
+
+#### PUT /api/v1/suppliers/{id}
+- **说明**: 更新一个供应商的信息。
+- **请求体**: `Supplier` 对象的部分或全部字段。
+- **响应**: `200 OK`, 返回更新后的 `Supplier` 对象。
+
+#### DELETE /api/v1/suppliers/{id}
+- **说明**: 删除一个供应商（软删除）。
+- **响应**: `204 No Content`。
+
+### 19.25 采购订单 API (V5.4 新增)
+
+#### POST /api/v1/purchase-orders
+- **说明**: 创建一个新的采购订单。
+- **请求体**: 包含 `supplier_id`, `expected_delivery_date`, 和 `items` (采购项数组) 的对象。
+- **请求示例**:
+```json
+{
+  "supplier_id": "supp-uuid-001",
+  "expected_delivery_date": "2026-04-15",
+  "remarks": "请尽快发货",
+  "items": [
+    {
+      "material_code": "AL-6063-T5-001",
+      "quantity": 100,
+      "unit_price": 25.5
+    },
+    {
+      "material_code": "HW-HANDLE-002",
+      "quantity": 200,
+      "unit_price": 15
+    }
+  ]
+}
+```
+- **响应**: `201 Created`, 返回完整的采购订单对象。
+
+#### GET /api/v1/purchase-orders
+- **说明**: 获取采购订单列表。
+- **响应**: `200 OK`, 返回采购订单对象数组。
+
+#### GET /api/v1/purchase-orders/{id}
+- **说明**: 获取单个采购订单详情。
+- **响应**: `200 OK`, 返回包含 `items` 详情的完整采购订单对象。
+
+#### PUT /api/v1/purchase-orders/{id}/status
+- **说明**: 更新采购订单状态 (例如：待审核 -> 已批准, 已批准 -> 已入库)。
+- **请求体**: `{"status": "approved", "approver_id": "user-uuid-002"}`
+- **响应**: `200 OK`。
+
+### 19.26 质量检验 API (V5.4 新增)
+
+#### POST /api/v1/qc-inspections
+- **说明**: 创建一个质量检验记录。
+- **请求体**: 包含 `order_id`, `item_id`, `inspector_id`, `result` 等信息的对象。
+- **请求示例**:
+```json
+{
+  "inspection_type": "final_product",
+  "reference_id": "order-item-uuid-007", // 关联的订单项ID
+  "inspector_id": "user-uuid-005",
+  "result": "passed",
+  "metrics": {
+    "width_diff_mm": 0.5,
+    "height_diff_mm": -0.2,
+    "surface_scratches": 0
+  },
+  "remarks": "尺寸轻微偏差，在允许范围内。"
+}
+```
+- **响应**: `201 Created`, 返回完整的检验记录对象。
+
+#### GET /api/v1/qc-inspections
+- **说明**: 查询质检记录列表。
+- **查询参数**: `order_id`, `inspector_id`, `result`, `startDate`, `endDate`
+- **响应**: `200 OK`, 返回质检记录数组。
+
+### 19.27 报表配置 API (V5.4 新增)
+
+#### POST /api/v1/report-configs
+- **说明**: 创建一个自定义报表配置。
+- **响应**: `201 Created`。
+
+#### GET /api/v1/report-configs
+- **说明**: 获取用户保存的报表配置列表。
+- **响应**: `200 OK`。
+
+#### GET /api/v1/report-configs/{id}
+- **说明**: 获取单个报表配置。
+- **响应**: `200 OK`。
+
+#### PUT /api/v1/report-configs/{id}
+- **说明**: 更新报表配置。
+- **响应**: `200 OK`。
+
+#### DELETE /api/v1/report-configs/{id}
+- **说明**: 删除报表配置。
+- **响应**: `204 No Content`。
+
+### 19.28 其他核心 CRUD API (V5.4 新增)
+
+为保证文档完整性，以下为其他核心表的标准 CRUD API，其结构与 `suppliers` API 类似，不再赘述请求/响应细节。
+
+| 资源路径 | 对应数据表 | 说明 |
+| :--- | :--- | :--- |
+| `/api/v1/materials` | `material` | 物料主数据管理 |
+| `/api/v1/inventory` | `inventory` | 库存记录管理（仅限手动调整，自动出入库由其他业务触发） |
+| `/api/v1/production-orders` | `production_order` | 生产工单管理 |
+| `/api/v1/financial-transactions` | `financial_transaction` | 财务流水管理（手动记账） |
