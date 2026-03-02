@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V2.0 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V2.1 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -67,8 +67,8 @@
 | CSS 框架 | Tailwind CSS | 4.x | 一致 |
 | UI 组件库 | shadcn/ui (Radix UI) | — | 一致 |
 | 路由 | Wouter | 轻量级 | 一致 |
-| 2D 画布 | **手写 SVG** | — | **需迁移到 Konva.js** |
-| 状态管理 | useReducer (DesignerContext) | — | **需引入 Zustand** |
+| 2D 画布 | **Konva.js + react-konva** | — | **已完成迁移** |
+| 状态管理 | **Zustand** (designStore/canvasStore/historyStore) | — | **已完成迁移** |
 | 3D 渲染 | Three.js + R3F | — | 一致 |
 | 后端 | 无（纯前端静态） | — | **需升级为全栈** |
 | 数据库 | 无 | — | **需引入 MySQL + Redis** |
@@ -241,21 +241,34 @@ DesignData
 
 ## 5. 画图模块架构
 
-### 5.1 当前实现（原型阶段）
+### 5.1 当前实现（Konva.js + Zustand 已完成迁移）
 
 ```
-Home.tsx (主设计器页面)
-├── TopToolbar (顶部工具栏：模板选择、2D/3D切换、缩放)
-├── Toolbox (左侧工具箱：8种绘图工具、扇类型选择)
-├── Canvas (SVG 2D画布：网格、外框、中梃、玻璃、标注)
-├── Preview3D (Three.js 3D预览：旋转/缩放/平移)
-└── PropertyPanel (右侧属性面板：尺寸、颜色、开启方式)
+EditorPage.tsx (主设计器页面 - 三栏布局)
+├── TopToolbar (顶部工具栏：撤销/重做、缩放、网格吸附、尺寸标注、保存/导入/导出)
+├── Toolbox (左侧工具面板：基础工具、中梃工具、扇类型选择、型材系列、预设模板)
+├── KonvaCanvas (Konva.js 2D画布：多层渲染架构)
+│   ├── GridLayer (L0 网格背景层)
+│   ├── FrameRenderer (L1 外框型材渲染)
+│   ├── MullionRenderer (L1 中梃型材渲染)
+│   ├── GlassRenderer (L2 玻璃区域渲染)
+│   ├── SashRenderer (L3 扇标记渲染 - 13种扇类型)
+│   ├── DimensionRenderer (L4 尺寸标注)
+│   └── SelectionOverlay (L5 选中高亮+控制点)
+├── ContextMenu (右键菜单)
+└── PropertyPanel (右侧属性面板：窗户属性、型材信息、元素操作)
 
-DesignerContext (useReducer 状态管理)
-├── design: DesignData (设计数据)
-├── canvas: CanvasState (画布状态：工具、缩放、平移)
-├── history: HistoryState (撤销/恢复栈)
-└── dispatch → 20种Action
+Zustand Stores (状态管理)
+├── designStore: 设计数据 + 窗户/中梃/扇 CRUD 操作
+├── canvasStore: 画布视口 + 工具 + 交互状态
+└── historyStore: 撤销/重做快照栈
+
+支撑模块
+├── useKeyboardShortcuts: 全局快捷键 (V/R/M/H/S/G/D/Ctrl+Z/Y/S)
+├── useAutoSave: 自动保存到 localStorage (30s 间隔)
+├── storageAdapter: 数据持久化适配器 (localStorage, 后续可替换为 API)
+├── validators: 边界校验 (窗户尺寸、中梃位置、扇互斥)
+└── geometry: 几何计算 (碰撞检测、坐标转换、网格吸附)
 ```
 
 ### 5.2 目标架构（Konva.js 迁移后）
@@ -373,48 +386,68 @@ flowchart LR
 
 ```
 windoor-designer/
-├── client/
-│   ├── index.html                    # HTML 入口（Google Fonts）
-│   ├── public/                       # 静态配置文件
-│   └── src/
-│       ├── main.tsx                  # React 入口
-│       ├── App.tsx                   # 路由 & Provider（base=/windows）
-│       ├── index.css                 # 全局样式 & Tailwind 主题
-│       ├── pages/
-│       │   ├── Home.tsx              # 主设计器页面
-│       │   └── NotFound.tsx          # 404 页面
-│       ├── components/
-│       │   ├── Canvas.tsx            # SVG 2D 画布（待迁移 Konva.js）
-│       │   ├── Preview3D.tsx         # Three.js 3D 预览
-│       │   ├── TopToolbar.tsx        # 顶部工具栏
-│       │   ├── Toolbox.tsx           # 左侧工具箱
-│       │   ├── PropertyPanel.tsx     # 右侧属性面板
-│       │   ├── ErrorBoundary.tsx     # 错误边界
-│       │   └── ui/                   # shadcn/ui 组件（40+）
-│       ├── contexts/
-│       │   ├── DesignerContext.tsx    # 设计器状态（待迁移 Zustand）
-│       │   └── ThemeContext.tsx       # 主题上下文
-│       ├── hooks/
-│       │   ├── useKeyboardShortcuts.ts
-│       │   ├── useComposition.ts
-│       │   ├── useMobile.tsx
-│       │   └── usePersistFn.ts
-│       └── lib/
-│           ├── types.ts              # 核心领域模型
-│           ├── design-utils.ts       # 设计数据操作函数
-│           └── utils.ts              # 通用工具
-├── server/                           # 占位（待升级全栈）
-├── shared/                           # 占位（待迁移共享类型）
-├── docs/                             # 产品文档
-│   ├── PRD_V5_Complete.md            # PRD 金标准（V5.5, 4819行）
-│   ├── 画图模块_可执行规格书.md        # 前端渲染层规格
-│   ├── CANVAS-ENGINE-SELECTION.md    # 画布引擎选型报告
-│   ├── TEAM-SPEC.md                  # 团队分工与协作规范
-│   ├── DEVELOPMENT-PLAN.md           # 开发计划
-│   └── archive/                      # 归档文档
-├── ARCHITECTURE.md                   # 本文档
-├── CHANGELOG.md                      # 变更日志
-└── PRD_README.md                     # 文档入口索引
+├── packages/
+│   ├── client/                        # 前端应用
+│   │   ├── index.html                 # HTML 入口
+│   │   ├── vite.config.ts             # Vite 配置（别名 @/ 和 @windoor/shared）
+│   │   └── src/
+│   │       ├── main.tsx               # React 入口
+│   │       ├── App.tsx                # 路由 & Provider
+│   │       ├── index.css              # 全局样式 & Tailwind 主题
+│   │       ├── pages/
+│   │       │   ├── EditorPage.tsx      # 主设计器页面（三栏布局）
+│   │       │   ├── Editor.tsx          # 旧版编辑器（保留）
+│   │       │   └── NotFound.tsx        # 404 页面
+│   │       ├── components/
+│   │       │   ├── canvas/             # ★ Konva.js 画布组件（新增）
+│   │       │   │   ├── KonvaCanvas.tsx # 主画布容器（Stage + 交互逻辑）
+│   │       │   │   ├── GridLayer.tsx   # L0 网格背景层
+│   │       │   │   ├── FrameRenderer.tsx   # L1 外框渲染
+│   │       │   │   ├── GlassRenderer.tsx   # L2 玻璃区域渲染
+│   │       │   │   ├── MullionRenderer.tsx # L1 中梃渲染
+│   │       │   │   ├── SashRenderer.tsx    # L3 扇标记渲染（13种扇类型）
+│   │       │   │   ├── DimensionRenderer.tsx # L4 尺寸标注
+│   │       │   │   ├── SelectionOverlay.tsx  # L5 选中高亮+控制点
+│   │       │   │   └── OpeningRenderer.tsx   # Opening 递归渲染
+│   │       │   ├── Toolbox.tsx         # 左侧工具面板（新版 Zustand）
+│   │       │   ├── PropertyPanel.tsx   # 右侧属性面板（新版 Zustand）
+│   │       │   ├── TopToolbar.tsx      # 顶部工具栏（新版 Zustand）
+│   │       │   ├── ContextMenu.tsx     # 右键菜单（新增）
+│   │       │   ├── CanvasRenderer.tsx  # 旧版 SVG 画布（保留）
+│   │       │   ├── Preview3D.tsx       # Three.js 3D 预览
+│   │       │   ├── ErrorBoundary.tsx   # 错误边界
+│   │       │   └── ui/                # shadcn/ui 组件
+│   │       ├── stores/                # ★ Zustand 状态管理（新增）
+│   │       │   ├── designStore.ts     # 设计数据 Store
+│   │       │   ├── canvasStore.ts     # 画布状态 Store
+│   │       │   └── historyStore.ts    # 撤销/重做 Store
+│   │       ├── hooks/
+│   │       │   ├── useKeyboardShortcuts.ts  # 键盘快捷键（新版）
+│   │       │   ├── useAutoSave.ts     # 自动保存 Hook（新增）
+│   │       │   └── useEditorStore.ts   # 旧版 Store（保留）
+│   │       ├── lib/
+│   │       │   ├── constants.ts       # 渲染常量和颜色配置（新增）
+│   │       │   ├── geometry.ts        # 几何计算工具函数（新增）
+│   │       │   ├── validators.ts      # 边界校验工具函数（新增）
+│   │       │   ├── storageAdapter.ts   # localStorage 持久化适配器（新增）
+│   │       │   ├── window-factory.ts   # 窗户工厂函数+预设模板
+│   │       │   ├── types.ts           # 前端类型定义
+│   │       │   └── utils.ts           # 通用工具
+│   │       └── contexts/
+│   │           └── ThemeContext.tsx    # 主题上下文
+│   ├── shared/                        # 前后端共享包
+│   │   └── src/
+│   │       ├── types/                 # 共享类型定义
+│   │       │   ├── design.ts          # 核心领域模型
+│   │       │   ├── editor.ts          # 编辑器类型
+│   │       │   └── ...
+│   │       └── constants/             # 共享常量
+│   │           ├── profiles.ts        # 型材系列（50/55/60/65/70）
+│   │           └── constraints.ts     # 边界约束
+│   └── server/                        # 后端（待开发）
+├── docs/                              # 产品文档
+├── ARCHITECTURE.md                    # 本文档
+└── PRD_README.md                      # 文档入口索引
 ```
 
 ---
@@ -484,13 +517,21 @@ windoor-designer/
 | 2026-03-02 | PRD 文档体系 | 从 V3 迭代至 V5.5 Complete（4819行，14模块） |
 | 2026-03-02 | 画布引擎选型 | Konva.js 选型报告（综合评分 9.0/10） |
 | 2026-03-02 | 团队规范 | TEAM-SPEC.md + DEVELOPMENT-PLAN.md |
+| 2026-03-02 | Konva.js 画布迁移 | 完成从 SVG 到 Konva.js 的 2D 画布引擎迁移，实现多层渲染架构 |
+| 2026-03-02 | Zustand 状态管理迁移 | 完成从 useReducer 到 Zustand 的状态管理迁移（designStore/canvasStore/historyStore） |
+| 2026-03-02 | 画布交互功能 | 实现绘制外框、添加中梃/扇、拖拽中梃、选中高亮、缩放平移 |
+| 2026-03-02 | UI 面板重构 | 重构 Toolbox/PropertyPanel/TopToolbar，集成 Zustand |
+| 2026-03-02 | 数据持久化 | 实现 localStorage 自动保存/恢复 + JSON 导入/导出 |
+| 2026-03-02 | 键盘快捷键 | 重构快捷键系统，支持 V/R/M/H/S/G/D/Ctrl+Z/Y/S |
+| 2026-03-02 | 右键菜单 | 新增右键上下文菜单，支持快捷删除和工具切换 |
+| 2026-03-02 | 边界校验 | 实现窗户尺寸、中梃位置、扇互斥等校验规则 |
 
 ### 9.2 当前状态评估
 
 | 维度 | 当前状态 | MVP 目标 | 差距 |
 | :--- | :--- | :--- | :--- |
-| 2D 画布 | SVG 原型可用 | Konva.js 专业画布 | 需迁移引擎 |
-| 数据持久化 | 无（刷新丢失） | 本地存储 + 云端同步 | 需全栈升级 |
+| 2D 画布 | **Konva.js 已完成** | Konva.js 专业画布 | ✅ 已完成 |
+| 数据持久化 | **localStorage 已完成** | 本地存储 + 云端同步 | 需全栈升级（云端同步） |
 | 算料功能 | 无 | DSL 公式引擎 | 需从零开发 |
 | 导出能力 | 无 | PNG/PDF/DXF | 需开发 |
 | 型材系统 | 硬编码 60mm | 可配置型材库 | 需开发 |
@@ -506,9 +547,9 @@ windoor-designer/
 
 | 优先级 | 问题 | 建议方案 | 预估工时 |
 | :--- | :--- | :--- | :--- |
-| **P0** | 2D 画布引擎需从 SVG 迁移到 Konva.js | 渐进式迁移：先实验页面 PoC，再替换主页面 | 3-5d |
-| **P0** | 状态管理需从 useReducer 迁移到 Zustand | 逐步迁移：先 Zustand 包装现有 reducer | 2d |
-| **P0** | 无数据持久化 | 先 localStorage 降级，再升级全栈 | 1d + 3d |
+| ~~**P0**~~ | ~~2D 画布引擎需从 SVG 迁移到 Konva.js~~ | ✅ **已完成** - Konva.js 多层渲染架构 | — |
+| ~~**P0**~~ | ~~状态管理需从 useReducer 迁移到 Zustand~~ | ✅ **已完成** - designStore/canvasStore/historyStore | — |
+| ~~**P0**~~ | ~~无数据持久化~~ | ✅ **已完成** - localStorage 自动保存 + JSON 导入/导出 | — |
 | **高** | 构建产物 1.7MB 单 chunk | dynamic import 拆分 Three.js | 1d |
 | **高** | Delete/Backspace 删除功能未实现 | 补充删除 Action | 0.5d |
 | **中** | 格条(glazing_bar)和填充物(filling)未实现 | 补充 UI 和 Action | 2d |
