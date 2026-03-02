@@ -663,7 +663,17 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
   },
 
   setActiveProfileSeries: (series) => {
-    set({ activeProfileSeries: series });
+    set((state) => ({
+      activeProfileSeries: series,
+      designData: {
+        ...state.designData,
+        windows: state.designData.windows.map((w) => ({
+          ...w,
+          profileSeriesId: series.id,
+        })),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
   },
 
   loadDesign: (data) => {

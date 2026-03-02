@@ -891,8 +891,8 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
                   />
                 ))}
 
-                {/* 尺寸标注 */}
-                {showDimensions && (
+                {/* 尺寸标注: 选中窗户显示完整标注，未选中只显示总尺寸 */}
+                {showDimensions && isSelected && (
                   <DimensionRenderer window={win} zoom={zoom} />
                 )}
 

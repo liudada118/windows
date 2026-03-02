@@ -1,8 +1,9 @@
-// WindoorDesigner - 右侧属性面板 v2.0
-// 工业蓝图美学: 紧凑的属性编辑面板
-// 基于《画图模块可执行规格书》重构
+// WindoorDesigner - 右侧属性面板 v2.1
+// 修复: BUG-001 尺寸修改使用 onBlur 避免每次按键触发 resize
+// 修复: BUG-006 属性修改推送历史快照（通过 onUpdateWindow 已实现）
+// 修复: BUG-007 型材系列切换联动窗户外观
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { WindowUnit, ProfileSeries, SashType } from '@/lib/types';
 import { DEFAULT_PROFILE_SERIES, CONSTRAINTS } from '@/lib/types';
 import { WINDOW_TEMPLATES } from '@/lib/window-factory';
@@ -61,9 +62,29 @@ export default function PropertiesPanel({
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(true);
 
-  // v2.0: 修改宽高时联动内部结构
-  const handleResize = (dimension: 'width' | 'height', value: number) => {
+  // BUG-001 修复: 使用本地 state 缓存输入值，只在 blur 或 Enter 时提交
+  const [localWidth, setLocalWidth] = useState('');
+  const [localHeight, setLocalHeight] = useState('');
+
+  // 当选中窗户变化时同步本地值
+  useEffect(() => {
+    if (selectedWindow) {
+      setLocalWidth(String(selectedWindow.width));
+      setLocalHeight(String(selectedWindow.height));
+    }
+  }, [selectedWindow?.id, selectedWindow?.width, selectedWindow?.height]);
+
+  // 提交尺寸修改
+  const commitResize = (dimension: 'width' | 'height') => {
     if (!selectedWindow) return;
+    const rawValue = dimension === 'width' ? localWidth : localHeight;
+    const value = parseInt(rawValue);
+    if (isNaN(value) || value <= 0) {
+      // 恢复原值
+      if (dimension === 'width') setLocalWidth(String(selectedWindow.width));
+      else setLocalHeight(String(selectedWindow.height));
+      return;
+    }
     const clampedValue = Math.max(
       dimension === 'width' ? CONSTRAINTS.MIN_WINDOW_WIDTH : CONSTRAINTS.MIN_WINDOW_HEIGHT,
       Math.min(
@@ -71,6 +92,15 @@ export default function PropertiesPanel({
         value
       )
     );
+    // 如果值没变，不触发更新
+    if (dimension === 'width' && clampedValue === selectedWindow.width) {
+      setLocalWidth(String(clampedValue));
+      return;
+    }
+    if (dimension === 'height' && clampedValue === selectedWindow.height) {
+      setLocalHeight(String(clampedValue));
+      return;
+    }
     const newWidth = dimension === 'width' ? clampedValue : selectedWindow.width;
     const newHeight = dimension === 'height' ? clampedValue : selectedWindow.height;
     const resized = resizeWindowUnit(selectedWindow, newWidth, newHeight);
@@ -79,6 +109,30 @@ export default function PropertiesPanel({
       height: resized.height,
       frame: resized.frame,
     });
+    // 同步本地值为 clamped 后的值
+    if (dimension === 'width') setLocalWidth(String(clampedValue));
+    else setLocalHeight(String(clampedValue));
+  };
+
+  // BUG-007 修复: 型材系列切换时联动所有窗户
+  const handleProfileSeriesChange = (series: ProfileSeries) => {
+    onProfileSeriesChange(series);
+    // 如果有选中窗户，更新其型材系列
+    if (selectedWindow && selectedWindow.profileSeriesId !== series.id) {
+      // 重建窗户框架以应用新的型材宽度
+      const resized = resizeWindowUnit(
+        { ...selectedWindow, frame: { ...selectedWindow.frame, profileWidth: series.frameWidth } },
+        selectedWindow.width,
+        selectedWindow.height
+      );
+      onUpdateWindow(selectedWindow.id, {
+        profileSeriesId: series.id,
+        frame: {
+          ...resized.frame,
+          profileWidth: series.frameWidth,
+        },
+      });
+    }
   };
 
   return (
@@ -135,14 +189,14 @@ export default function PropertiesPanel({
             ))}
           </div>
 
-          {/* Profile Series */}
+          {/* Profile Series - BUG-007 修复 */}
           <div className="mt-3">
             <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-1 block px-1">型材系列</label>
             <select
               value={activeProfileSeries.id}
               onChange={(e) => {
                 const series = DEFAULT_PROFILE_SERIES.find(s => s.id === e.target.value);
-                if (series) onProfileSeriesChange(series);
+                if (series) handleProfileSeriesChange(series);
               }}
               className="w-full bg-[oklch(0.20_0.035_260)] border border-[oklch(0.30_0.04_260)] rounded px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
             >
@@ -178,19 +232,18 @@ export default function PropertiesPanel({
                 />
               </div>
 
-              {/* Width & Height - v2.0: 联动内部结构 */}
+              {/* Width & Height - BUG-001 修复: 使用 onBlur + Enter 提交 */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5 block">宽度 (mm)</label>
                   <input
                     type="number"
-                    value={selectedWindow.width}
+                    value={localWidth}
                     min={CONSTRAINTS.MIN_WINDOW_WIDTH}
                     max={CONSTRAINTS.MAX_WINDOW_WIDTH}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      if (!isNaN(val) && val > 0) handleResize('width', val);
-                    }}
+                    onChange={(e) => setLocalWidth(e.target.value)}
+                    onBlur={() => commitResize('width')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
                     className="w-full bg-[oklch(0.20_0.035_260)] border border-[oklch(0.30_0.04_260)] rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                   />
                 </div>
@@ -198,13 +251,12 @@ export default function PropertiesPanel({
                   <label className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5 block">高度 (mm)</label>
                   <input
                     type="number"
-                    value={selectedWindow.height}
+                    value={localHeight}
                     min={CONSTRAINTS.MIN_WINDOW_HEIGHT}
                     max={CONSTRAINTS.MAX_WINDOW_HEIGHT}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      if (!isNaN(val) && val > 0) handleResize('height', val);
-                    }}
+                    onChange={(e) => setLocalHeight(e.target.value)}
+                    onBlur={() => commitResize('height')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
                     className="w-full bg-[oklch(0.20_0.035_260)] border border-[oklch(0.30_0.04_260)] rounded px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                   />
                 </div>

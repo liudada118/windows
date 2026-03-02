@@ -26,6 +26,8 @@ interface HistoryStoreActions {
   canRedo: () => boolean;
   /** 清空历史 */
   clearHistory: () => void;
+  /** 清空历史（别名） */
+  clear: () => void;
 }
 
 type HistoryStore = HistoryStoreState & HistoryStoreActions;
@@ -87,6 +89,11 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
   canRedo: () => get().redoStack.length > 0,
 
   clearHistory: () => {
+    set({ undoStack: [], redoStack: [] });
+  },
+
+  /** clear 别名 */
+  clear: () => {
     set({ undoStack: [], redoStack: [] });
   },
 }));

@@ -1,5 +1,6 @@
 // WindoorDesigner - 报价单对话框
-// 工业蓝图美学: 精确的报价数据展示
+// BUG-003 修复: 过滤无效窗户（宽高为0或NaN的不参与报价）
+// SUG-003 修复: 单价可手动编辑
 
 import { useState, useMemo } from 'react';
 import {
@@ -31,7 +32,7 @@ interface QuoteLineItem {
 }
 
 // Simulated pricing per m² based on series
-const SERIES_PRICING: Record<string, number> = {
+const DEFAULT_SERIES_PRICING: Record<string, number> = {
   'series-60': 380,
   'series-65': 420,
   'series-70': 480,
@@ -39,15 +40,33 @@ const SERIES_PRICING: Record<string, number> = {
   'series-85': 620,
 };
 
+/** 过滤有效窗户（BUG-003: 宽高为0、NaN、负数的不参与报价） */
+function filterValidWindows(windows: WindowUnit[]): WindowUnit[] {
+  return windows.filter((win) => {
+    if (!win || !win.id) return false;
+    if (typeof win.width !== 'number' || typeof win.height !== 'number') return false;
+    if (isNaN(win.width) || isNaN(win.height)) return false;
+    if (win.width <= 0 || win.height <= 0) return false;
+    return true;
+  });
+}
+
 export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps) {
   const [customerName, setCustomerName] = useState('');
   const [projectName, setProjectName] = useState('');
+  // SUG-003: 可编辑的单价 Map
+  const [customPrices, setCustomPrices] = useState<Record<string, number>>({});
+
+  // BUG-003: 过滤无效窗户
+  const validWindows = useMemo(() => filterValidWindows(windows), [windows]);
+  const invalidCount = windows.length - validWindows.length;
 
   const lineItems: QuoteLineItem[] = useMemo(() => {
-    return windows.map((win) => {
+    return validWindows.map((win) => {
       const series = DEFAULT_PROFILE_SERIES.find(s => s.id === win.profileSeriesId);
       const area = (win.width * win.height) / 1000000; // m²
-      const unitPrice = SERIES_PRICING[win.profileSeriesId] || 480;
+      const defaultPrice = DEFAULT_SERIES_PRICING[win.profileSeriesId] || 480;
+      const unitPrice = customPrices[win.id] ?? defaultPrice;
       return {
         name: win.name,
         series: series?.name || '70系列',
@@ -58,10 +77,17 @@ export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps
         totalPrice: parseFloat((area * unitPrice).toFixed(2)),
       };
     });
-  }, [windows]);
+  }, [validWindows, customPrices]);
 
   const totalArea = lineItems.reduce((sum, item) => sum + item.area, 0);
   const totalPrice = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  const handlePriceChange = (windowId: string, value: string) => {
+    const num = parseFloat(value);
+    if (!isNaN(num) && num >= 0) {
+      setCustomPrices((prev) => ({ ...prev, [windowId]: num }));
+    }
+  };
 
   const handleExportCSV = () => {
     const headers = ['序号', '名称', '型材系列', '宽度(mm)', '高度(mm)', '面积(m²)', '单价(元/m²)', '金额(元)'];
@@ -184,7 +210,12 @@ export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold text-slate-100">报价单</DialogTitle>
           <DialogDescription className="text-xs text-slate-500">
-            基于当前设计自动计算报价，价格仅供参考
+            基于当前设计自动计算报价，单价可点击编辑
+            {invalidCount > 0 && (
+              <span className="text-amber-500 ml-2">
+                （已过滤 {invalidCount} 个无效窗户）
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -213,16 +244,16 @@ export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps
         </div>
 
         {/* Quote table */}
-        <div className="rounded border border-[oklch(0.28_0.035_260)] overflow-hidden">
+        <div className="rounded border border-[oklch(0.28_0.035_260)] overflow-hidden max-h-[400px] overflow-y-auto">
           <table className="w-full text-xs">
-            <thead>
+            <thead className="sticky top-0">
               <tr className="bg-[oklch(0.14_0.025_260)]">
                 <th className="px-3 py-2 text-left text-slate-400 font-medium">#</th>
                 <th className="px-3 py-2 text-left text-slate-400 font-medium">名称</th>
                 <th className="px-3 py-2 text-left text-slate-400 font-medium">型材</th>
                 <th className="px-3 py-2 text-left text-slate-400 font-medium">尺寸</th>
                 <th className="px-3 py-2 text-right text-slate-400 font-medium">面积</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">单价</th>
+                <th className="px-3 py-2 text-right text-slate-400 font-medium">单价 ✏️</th>
                 <th className="px-3 py-2 text-right text-slate-400 font-medium">金额</th>
               </tr>
             </thead>
@@ -242,7 +273,17 @@ export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps
                       <td className="px-3 py-2 text-slate-400">{item.series}</td>
                       <td className="px-3 py-2 text-slate-400 font-mono">{item.width}×{item.height}</td>
                       <td className="px-3 py-2 text-right text-slate-300 font-mono">{item.area.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right text-slate-400 font-mono">{item.unitPrice}</td>
+                      <td className="px-3 py-2 text-right">
+                        {/* SUG-003: 可编辑单价 */}
+                        <input
+                          type="number"
+                          value={item.unitPrice}
+                          onChange={(e) => handlePriceChange(validWindows[i].id, e.target.value)}
+                          className="w-16 bg-transparent border-b border-dashed border-slate-600 text-right text-slate-300 font-mono text-xs focus:outline-none focus:border-amber-500 hover:border-slate-400"
+                          min={0}
+                          step={10}
+                        />
+                      </td>
                       <td className="px-3 py-2 text-right text-amber-400 font-mono font-semibold">{item.totalPrice.toFixed(2)}</td>
                     </tr>
                   ))}
@@ -261,7 +302,7 @@ export default function QuoteDialog({ open, onClose, windows }: QuoteDialogProps
 
         {/* Actions */}
         <div className="flex items-center justify-between mt-2">
-          <p className="text-[10px] text-slate-600">价格基于型材系列自动计算，仅供参考</p>
+          <p className="text-[10px] text-slate-600">价格基于型材系列自动计算，点击单价列可手动调整</p>
           <div className="flex gap-2">
             <Button
               variant="outline"

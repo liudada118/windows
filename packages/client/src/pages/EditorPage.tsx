@@ -26,7 +26,8 @@ import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch } from 'lucide-react';
+import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch, HelpCircle } from 'lucide-react';
+import { storageAdapter } from '@/lib/storageAdapter';
 import BOMPanel from '@/components/BOMPanel';
 import ExportDialog from '@/components/ExportDialog';
 import VersionManager from '@/components/VersionManager';
@@ -84,6 +85,7 @@ export default function EditorPage() {
   const [bomOpen, setBomOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const stageRef = useRef<Konva.Stage | null>(null);
 
   // Responsive
@@ -138,16 +140,16 @@ export default function EditorPage() {
     setViewMode(mode);
   }, [windows.length]);
 
-  // ===== Delete selected element =====
+  // ===== SUG-006: 删除确认 + Delete selected element =====
   const handleDeleteSelected = useCallback(() => {
     if (selectedElementId && selectedWindowId) {
       const win = windows.find((w) => w.id === selectedWindowId);
       if (!win) return;
 
-      pushHistory(getSnapshot());
-      const newFrame = JSON.parse(JSON.stringify(win.frame));
-
       if (selectedElementType === 'mullion') {
+        if (!confirm('确定要删除此中梃吗？子分格将被合并。')) return;
+        pushHistory(getSnapshot());
+        const newFrame = JSON.parse(JSON.stringify(win.frame));
         newFrame.openings = deleteMullionFromOpening(newFrame.openings, selectedElementId);
         updateWindow(win.id, { frame: newFrame });
         selectElement(null, null);
@@ -156,6 +158,8 @@ export default function EditorPage() {
       }
 
       if (selectedElementType === 'sash') {
+        pushHistory(getSnapshot());
+        const newFrame = JSON.parse(JSON.stringify(win.frame));
         newFrame.openings = deleteSashFromOpening(newFrame.openings, selectedElementId);
         updateWindow(win.id, { frame: newFrame });
         selectElement(null, null);
@@ -165,28 +169,57 @@ export default function EditorPage() {
     }
 
     if (selectedWindowId) {
+      if (!confirm('确定要删除此窗户吗？')) return;
       pushHistory(getSnapshot());
       deleteWindow(selectedWindowId);
       toast.info('已删除窗口');
     }
   }, [selectedElementId, selectedWindowId, selectedElementType, windows, pushHistory, getSnapshot, updateWindow, selectElement, deleteWindow]);
 
+  // ===== BUG-005: 智能放置 - 避免窗户重叠 =====
+  const findNonOverlappingPosition = useCallback((w: number, h: number): { x: number; y: number } => {
+    const centerWorldX = (canvasSize.width / 2 - panX) / (MM_TO_PX * zoom);
+    const centerWorldY = (canvasSize.height / 2 - panY) / (MM_TO_PX * zoom);
+    const gridMM = 10;
+    let posX = snapToGrid ? Math.round((centerWorldX - w / 2) / gridMM) * gridMM : centerWorldX - w / 2;
+    let posY = snapToGrid ? Math.round((centerWorldY - h / 2) / gridMM) * gridMM : centerWorldY - h / 2;
+
+    // 检查是否与现有窗户重叠，如果重叠则偏移
+    const MARGIN = 50; // mm 间距
+    let attempts = 0;
+    while (attempts < 20) {
+      const overlaps = windows.some((win) => {
+        return (
+          posX < win.posX + win.width + MARGIN &&
+          posX + w + MARGIN > win.posX &&
+          posY < win.posY + win.height + MARGIN &&
+          posY + h + MARGIN > win.posY
+        );
+      });
+      if (!overlaps) break;
+      // 向右下偏移
+      posX += w + MARGIN;
+      if (posX > centerWorldX + 3000) {
+        posX = centerWorldX - w / 2;
+        posY += h + MARGIN;
+      }
+      attempts++;
+    }
+    return { x: posX, y: posY };
+  }, [windows, canvasSize, panX, panY, zoom, snapToGrid]);
+
   // ===== Add template =====
   const handleAddTemplate = useCallback((templateId: string) => {
     const template = WINDOW_TEMPLATES.find((t) => t.id === templateId);
     if (!template) return;
 
-    const centerWorldX = (canvasSize.width / 2 - panX) / (MM_TO_PX * zoom);
-    const centerWorldY = (canvasSize.height / 2 - panY) / (MM_TO_PX * zoom);
-    const gridMM = 10;
-    const posX = snapToGrid ? Math.round((centerWorldX - template.width / 2) / gridMM) * gridMM : centerWorldX - template.width / 2;
-    const posY = snapToGrid ? Math.round((centerWorldY - template.height / 2) / gridMM) * gridMM : centerWorldY - template.height / 2;
+    const pos = findNonOverlappingPosition(template.width, template.height);
 
     pushHistory(getSnapshot());
-    const newWin = template.create(template.id, posX, posY, activeProfileSeries);
+    const newWin = template.create(template.id, pos.x, pos.y, activeProfileSeries);
     addWindowUnit(newWin);
     toast.success(`已添加 ${template.name}`);
-  }, [panX, panY, zoom, activeProfileSeries, canvasSize, snapToGrid, pushHistory, getSnapshot, addWindowUnit]);
+  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
 
   // ===== Update window with history =====
   const handleUpdateWindowWithHistory = useCallback((id: string, updates: Partial<WindowUnit>) => {
@@ -194,13 +227,18 @@ export default function EditorPage() {
     updateWindow(id, updates);
   }, [pushHistory, getSnapshot, updateWindow]);
 
-  // ===== New project =====
+  // ===== BUG-008: 新建项目 - 清空 store 而非 reload =====
   const handleNewProject = useCallback(() => {
     if (windows.length > 0) {
       if (!confirm('确定要新建项目吗？当前设计将被清除。')) return;
     }
-    window.location.reload();
-  }, [windows]);
+    // 清空所有 store 状态
+    storageAdapter.clear();
+    loadDesign({ id: '', name: '新设计方案', windows: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    useCanvasStore.getState().resetView();
+    useHistoryStore.getState().clear();
+    toast.success('已新建项目');
+  }, [windows, loadDesign]);
 
   // ===== Export JSON =====
   const handleExportJSON = useCallback(() => {
@@ -235,6 +273,7 @@ export default function EditorPage() {
       switch (e.key) {
         case '3': handleSetViewMode(viewMode === '3d' ? '2d' : '3d'); break;
         case '4': handleSetViewMode(viewMode === 'scene' ? '2d' : 'scene'); break;
+        case '?': setShortcutsOpen(true); break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -515,6 +554,69 @@ export default function EditorPage() {
           onRestore={handleVersionRestore}
           onClose={() => setVersionOpen(false)}
         />
+      )}
+
+      {/* SUG-008: 快捷键帮助面板 */}
+      {shortcutsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShortcutsOpen(false)}>
+          <div className="bg-[oklch(0.17_0.028_260)] border border-[oklch(0.30_0.04_260)] rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[oklch(0.25_0.035_260)]">
+              <h3 className="text-sm font-semibold text-slate-200">快捷键参考</h3>
+              <button onClick={() => setShortcutsOpen(false)} className="text-slate-500 hover:text-slate-300 text-lg">&times;</button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              {[
+                { group: '工具切换', items: [
+                  ['V', '选择工具'],
+                  ['R', '绘制外框'],
+                  ['M', '添加中梃'],
+                  ['S', '添加扇'],
+                  ['H', '平移工具'],
+                ]},
+                { group: '编辑操作', items: [
+                  ['Ctrl+Z', '撤销'],
+                  ['Ctrl+Y / Ctrl+Shift+Z', '重做'],
+                  ['Delete / Backspace', '删除选中'],
+                  ['Escape', '取消选择'],
+                ]},
+                { group: '视图控制', items: [
+                  ['滚轮', '缩放（以鼠标为中心）'],
+                  ['中键拖拽', '平移画布'],
+                  ['3', '切换 2D/3D 视图'],
+                  ['4', '切换 2D/实景 视图'],
+                  ['G', '切换网格吸附'],
+                  ['D', '切换尺寸标注'],
+                ]},
+                { group: '其他', items: [
+                  ['?', '显示此帮助面板'],
+                ]},
+              ].map((section) => (
+                <div key={section.group}>
+                  <h4 className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">{section.group}</h4>
+                  <div className="space-y-1">
+                    {section.items.map(([key, desc]) => (
+                      <div key={key} className="flex items-center justify-between py-1">
+                        <span className="text-xs text-slate-400">{desc}</span>
+                        <kbd className="px-2 py-0.5 bg-[oklch(0.22_0.03_260)] border border-[oklch(0.30_0.04_260)] rounded text-[10px] text-amber-400 font-mono min-w-[2rem] text-center">{key}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 快捷键帮助按钮 - 右下角浮动 */}
+      {!isMobileLayout && viewMode === '2d' && (
+        <button
+          onClick={() => setShortcutsOpen(true)}
+          className="fixed bottom-12 right-4 z-30 w-8 h-8 flex items-center justify-center rounded-full bg-[oklch(0.20_0.035_260)]/80 backdrop-blur border border-[oklch(0.30_0.04_260)] text-slate-500 hover:text-amber-400 hover:border-amber-500/30 transition-all"
+          title="快捷键帮助 (?)"
+        >
+          <HelpCircle size={14} />
+        </button>
       )}
     </div>
   );
