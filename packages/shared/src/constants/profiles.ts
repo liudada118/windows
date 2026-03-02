@@ -8,3 +8,19 @@ export const DEFAULT_PROFILE_SERIES: ProfileSeries[] = [
   { id: 'series-80', name: '80系列', frameWidth: 80, sashWidth: 72, mullionWidth: 80, frameDepth: 80, sashDepth: 60, mullionDepth: 80, color: '#C0C0C0' },
   { id: 'series-85', name: '85系列', frameWidth: 85, sashWidth: 78, mullionWidth: 85, frameDepth: 85, sashDepth: 65, mullionDepth: 85, color: '#D0D0D0' },
 ];
+
+/**
+ * 型材系列 → 算料公式库 映射表
+ * 
+ * key: ProfileSeries.id
+ * value: formulaLibrary 中的 key
+ * 
+ * 当某个系列没有专属公式时，使用 'casement-108' 作为默认公式
+ */
+export const SERIES_FORMULA_MAP: Record<string, string> = {
+  'series-60': 'casement-108',
+  'series-65': 'casement-108',
+  'series-70': 'casement-108',
+  'series-80': 'casement-108',
+  'series-85': 'casement-108',
+};

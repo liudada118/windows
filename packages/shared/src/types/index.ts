@@ -54,3 +54,11 @@ export type {
 } from './api';
 
 export { ERROR_CODES } from './api';
+
+export type {
+  ProfileFormula,
+  GlassFormula,
+  AddonFormula,
+  PricingRule,
+  Formula,
+} from './formula';
