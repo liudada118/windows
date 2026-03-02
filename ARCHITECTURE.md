@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V3.0 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V3.1 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -243,34 +243,34 @@ DesignData
 
 ## 5. 画图模块架构
 
-### 5.1 当前实现（Konva.js + Zustand 已完成迁移）
+### 5.1 当前实现（V3.1 - 修复测试报告 Bug）
 
 ```
 EditorPage.tsx (主设计器页面 - 三栏布局)
-├── TopToolbar (顶部工具栏：撤销/重做、缩放、网格吸附、尺寸标注、保存/导入/导出)
-├── Toolbox (左侧工具面板：基础工具、中梃工具、扇类型选择、型材系列、预设模板)
+├── TopBar (顶部栏：新建/导出/报价/视图切换)
+├── Toolbar (左侧工具栏：选择/绘制/中梃/扇/平移)
 ├── KonvaCanvas (Konva.js 2D画布：多层渲染架构)
 │   ├── GridLayer (L0 网格背景层)
 │   ├── FrameRenderer (L1 外框型材渲染)
-│   ├── MullionRenderer (L1 中梃型材渲染)
-│   ├── GlassRenderer (L2 玻璃区域渲染)
-│   ├── SashRenderer (L3 扇标记渲染 - 13种扇类型)
-│   ├── DimensionRenderer (L4 尺寸标注)
-│   └── SelectionOverlay (L5 选中高亮+控制点)
-├── ContextMenu (右键菜单)
-└── PropertyPanel (右侧属性面板：窗户属性、型材信息、元素操作)
+│   ├── OpeningRenderer (L2 递归渲染 Opening)
+│   ├── DimensionRenderer (L3 尺寸标注 - 仅选中)
+│   └── SelectionOverlay (L4 选中高亮+控制点)
+├── PropertiesPanel (右侧属性面板：尺寸/位置/型材)
+├── QuoteDialog (报价对话框 - 过滤无效项/单价可编辑)
+├── ExportDialog (导出对话框 - PNG/SVG/PDF/DXF)
+└── ShortcutsDialog (快捷键帮助面板)
 
 Zustand Stores (状态管理)
-├── designStore: 设计数据 + 窗户/中梃/扇 CRUD 操作
-├── canvasStore: 画布视口 + 工具 + 交互状态
-└── historyStore: 撤销/重做快照栈
+├── designStore: 设计数据 + CRUD (BUG-007 修复)
+├── canvasStore: 画布视口 + 工具 + 交互状态 (BUG-008 修复)
+└── historyStore: 撤销/重做快照栈 (BUG-008 修复)
 
 支撑模块
-├── useKeyboardShortcuts: 全局快捷键 (V/R/M/H/S/G/D/Ctrl+Z/Y/S)
-├── useAutoSave: 自动保存到 localStorage (30s 间隔)
-├── storageAdapter: 数据持久化适配器 (localStorage, 后续可替换为 API)
-├── validators: 边界校验 (窗户尺寸、中梃位置、扇互斥)
-└── geometry: 几何计算 (碰撞检测、坐标转换、网格吸附)
+├── useKeyboardShortcuts: 全局快捷键 (? 键帮助)
+├── useAutoSave: 自动保存到 localStorage
+├── storageAdapter: 数据持久化适配器 (BUG-002 数据校验修复)
+├── validators: 边界校验
+└── geometry: 几何计算 (BUG-005 智能放置修复)
 ```
 
 ### 5.2 目标架构（Konva.js 迁移后）

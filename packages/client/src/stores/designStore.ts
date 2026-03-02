@@ -282,6 +282,170 @@ function deleteSashInTree(
   });
 }
 
+/**
+ * 查找中梃在 Opening 树中的有效移动范围，防止越过子 Opening 中的嵌套中梃。
+ */
+function getMinMullionPosition(opening: Opening, type: 'vertical' | 'horizontal'): number {
+  if (!opening.isSplit || opening.childOpenings.length === 0) {
+    return type === 'vertical' ? opening.rect.x : opening.rect.y;
+  }
+  const m = opening.mullions[0];
+  if (m.type === type) {
+    return m.position;
+  }
+  // 如果中梃方向不同，递归查找
+  let minPos = type === 'vertical' ? opening.rect.x : opening.rect.y;
+  for (const child of opening.childOpenings) {
+    minPos = Math.min(minPos, getMinMullionPosition(child, type));
+  }
+  return minPos;
+}
+
+function getMaxMullionPosition(opening: Opening, type: 'vertical' | 'horizontal'): number {
+  if (!opening.isSplit || opening.childOpenings.length === 0) {
+    return type === 'vertical' ? opening.rect.x + opening.rect.width : opening.rect.y + opening.rect.height;
+  }
+  const m = opening.mullions[0];
+  if (m.type === type) {
+    return m.position;
+  }
+  let maxPos = type === 'vertical' ? opening.rect.x + opening.rect.width : opening.rect.y + opening.rect.height;
+  for (const child of opening.childOpenings) {
+    maxPos = Math.max(maxPos, getMaxMullionPosition(child, type));
+  }
+  return maxPos;
+}
+
+/**
+ * 限制中梃位置，确保不会越过子 Opening 中的嵌套中梃。
+ */
+function clampMullionPosition(
+  openings: Opening[],
+  mullionId: string,
+  newPosition: number,
+  mullionWidth: number
+): number {
+  const result = findAndClampMullion(openings, mullionId, newPosition, mullionWidth);
+  return result !== null ? result : newPosition;
+}
+
+function findAndClampMullion(
+  openings: Opening[],
+  mullionId: string,
+  newPosition: number,
+  mullionWidth: number
+): number | null {
+  for (const opening of openings) {
+    const mullionIndex = opening.mullions.findIndex((m) => m.id === mullionId);
+    if (mullionIndex !== -1) {
+      const mullion = opening.mullions[mullionIndex];
+      const halfMullion = mullionWidth / 2;
+      const minGap = mullionWidth + 20; // 最小间距：中梃宽 + 20mm
+
+      // 基本范围：父 Opening 的边界
+      let minPos: number, maxPos: number;
+      if (mullion.type === 'vertical') {
+        minPos = opening.rect.x + halfMullion + 20;
+        maxPos = opening.rect.x + opening.rect.width - halfMullion - 20;
+      } else {
+        minPos = opening.rect.y + halfMullion + 20;
+        maxPos = opening.rect.y + opening.rect.height - halfMullion - 20;
+      }
+
+      // 检查子 Opening 中的嵌套中梃，限制不能越过它们
+      if (opening.childOpenings.length >= 2) {
+        const child0 = opening.childOpenings[0]; // 左/上子 Opening
+        const child1 = opening.childOpenings[1]; // 右/下子 Opening
+
+        // child0 中的最大中梃位置（不能左移超过它）
+        if (child0.isSplit) {
+          const child0Max = getMaxMullionPosition(child0, mullion.type);
+          minPos = Math.max(minPos, child0Max + minGap);
+        }
+
+        // child1 中的最小中梃位置（不能右移超过它）
+        if (child1.isSplit) {
+          const child1Min = getMinMullionPosition(child1, mullion.type);
+          maxPos = Math.min(maxPos, child1Min - minGap);
+        }
+      }
+
+      return Math.max(minPos, Math.min(maxPos, newPosition));
+    }
+
+    // 递归查找
+    if (opening.childOpenings.length > 0) {
+      const found = findAndClampMullion(opening.childOpenings, mullionId, newPosition, mullionWidth);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * 重建 Opening 的 rect，保持内部中梃的绝对位置不变。
+ * 只调整 Opening 自身的 rect 和叶子 Opening 的 rect，
+ * 不按比例缩放子中梃的位置。
+ */
+function rebuildOpeningWithFixedMullions(opening: Opening, newRect: Rect): Opening {
+  let updatedSash: Sash | null = null;
+  if (opening.sash) {
+    updatedSash = { ...opening.sash, rect: newRect };
+  }
+
+  // 叶子节点：直接更新 rect
+  if (!opening.isSplit || opening.childOpenings.length === 0) {
+    return { ...opening, rect: newRect, sash: updatedSash };
+  }
+
+  // 有子分格：保持中梃绝对位置不变，重新计算子 Opening 的 rect
+  const mullion = opening.mullions[0]; // 每个 split Opening 只有一个中梃
+  const halfMullion = mullion.profileWidth / 2;
+
+  let child0Rect: Rect;
+  let child1Rect: Rect;
+
+  if (mullion.type === 'vertical') {
+    child0Rect = createRect(
+      newRect.x,
+      newRect.y,
+      mullion.position - newRect.x - halfMullion,
+      newRect.height
+    );
+    child1Rect = createRect(
+      mullion.position + halfMullion,
+      newRect.y,
+      newRect.x + newRect.width - mullion.position - halfMullion,
+      newRect.height
+    );
+  } else {
+    child0Rect = createRect(
+      newRect.x,
+      newRect.y,
+      newRect.width,
+      mullion.position - newRect.y - halfMullion
+    );
+    child1Rect = createRect(
+      newRect.x,
+      mullion.position + halfMullion,
+      newRect.width,
+      newRect.y + newRect.height - mullion.position - halfMullion
+    );
+  }
+
+  const updatedChildren = opening.childOpenings.map((child, i) => {
+    const childNewRect = i === 0 ? child0Rect : child1Rect;
+    return rebuildOpeningWithFixedMullions(child, childNewRect);
+  });
+
+  return {
+    ...opening,
+    rect: newRect,
+    sash: updatedSash,
+    childOpenings: updatedChildren,
+  };
+}
+
 /** 递归更新中梃位置（拖拽） */
 function updateMullionPositionInTree(
   openings: Opening[],
@@ -328,9 +492,10 @@ function updateMullionPositionInTree(
         );
       }
 
+      // 使用 rebuildOpeningWithFixedMullions 保持子中梃绝对位置不变
       const updatedChildren = opening.childOpenings.map((child, i) => {
         const newRect = i === 0 ? child1Rect : child2Rect;
-        return resizeOpeningRecursive(child, newRect);
+        return rebuildOpeningWithFixedMullions(child, newRect);
       });
 
       return {
@@ -591,27 +756,40 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
 
   moveMullion: (windowId, mullionId, newPosition) => {
     const series = get().activeProfileSeries;
-    set((state) => ({
-      designData: {
-        ...state.designData,
-        windows: state.designData.windows.map((w) => {
-          if (w.id !== windowId) return w;
-          return {
-            ...w,
-            frame: {
-              ...w.frame,
-              openings: updateMullionPositionInTree(
-                w.frame.openings,
-                mullionId,
-                newPosition,
-                series.mullionWidth
-              ),
-            },
-          };
-        }),
-        updatedAt: new Date().toISOString(),
-      },
-    }));
+    set((state) => {
+      const win = state.designData.windows.find((w) => w.id === windowId);
+      if (!win) return state;
+
+      // 查找中梃所在的父 Opening，并计算有效移动范围
+      const clampedPosition = clampMullionPosition(
+        win.frame.openings,
+        mullionId,
+        newPosition,
+        series.mullionWidth
+      );
+
+      return {
+        designData: {
+          ...state.designData,
+          windows: state.designData.windows.map((w) => {
+            if (w.id !== windowId) return w;
+            return {
+              ...w,
+              frame: {
+                ...w.frame,
+                openings: updateMullionPositionInTree(
+                  w.frame.openings,
+                  mullionId,
+                  clampedPosition,
+                  series.mullionWidth
+                ),
+              },
+            };
+          }),
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
   },
 
   setSash: (windowId, openingId, sashType) => {
