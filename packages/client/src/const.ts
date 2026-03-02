@@ -1,4 +1,6 @@
-export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+// 共享常量
+export const COOKIE_NAME = "app_session_id";
+export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 
 // Generate login URL at runtime so redirect URI reflects the current origin.
 export const getLoginUrl = () => {

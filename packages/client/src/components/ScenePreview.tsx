@@ -203,8 +203,7 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
     scene.add(dirLight);
     
     // 创建3D门窗模型
-    const profileSeries = targetWindow.profileSeries || DEFAULT_PROFILE_SERIES[2];
-    const windowGroup = createWindow3D(targetWindow, profileSeries);
+    const windowGroup = createWindow3D(targetWindow, 0);
     scene.add(windowGroup);
     
     // 渲染
@@ -588,7 +587,7 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-500">型材</span>
-                    <span className="text-slate-300">{targetWindow.profileSeries?.name || '70系列'}</span>
+                    <span className="text-slate-300">{DEFAULT_PROFILE_SERIES.find(s => s.id === targetWindow.profileSeriesId)?.name || '70系列'}</span>
                   </div>
                 </div>
               </div>

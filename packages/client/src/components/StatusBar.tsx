@@ -13,7 +13,7 @@ interface StatusBarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
-  viewMode?: '2d' | '3d';
+  viewMode?: '2d' | '3d' | 'scene';
 }
 
 const TOOL_NAMES: Record<ToolType, string> = {
