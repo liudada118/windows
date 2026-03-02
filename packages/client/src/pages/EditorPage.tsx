@@ -4,7 +4,7 @@
 // 3D预览: Three.js集成，支持2D/3D/实景一键切换
 // 基于 Konva.js 渲染引擎 + Zustand 状态管理
 
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, lazy, Suspense, useMemo } from 'react';
 import { useDesignStore } from '@/stores/designStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -17,13 +17,10 @@ import MobileToolbar from '@/components/MobileToolbar';
 import MobilePropertiesDrawer from '@/components/MobilePropertiesDrawer';
 import {
   WINDOW_TEMPLATES,
-  createWindowUnit,
   deleteMullionFromOpening,
   deleteSashFromOpening,
-  resizeWindowUnit,
 } from '@/lib/window-factory';
-import type { WindowUnit, ProfileSeries, SashType } from '@/lib/types';
-import { CONSTRAINTS } from '@/lib/types';
+import type { WindowUnit } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
@@ -93,6 +90,7 @@ export default function EditorPage() {
 
   // ===== Auto-save & Keyboard shortcuts =====
   useAutoSave();
+  useKeyboardShortcuts();
 
   // ===== Resize observer =====
   useEffect(() => {
@@ -213,42 +211,20 @@ export default function EditorPage() {
     toast.success('已导出设计文件');
   }, [windows]);
 
-  // ===== Keyboard shortcuts =====
+  // ===== View mode & delete keyboard shortcuts (supplementary to useKeyboardShortcuts) =====
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.ctrlKey || e.metaKey) return; // Ctrl shortcuts handled by useKeyboardShortcuts
 
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-        if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
-        if (e.key === 'Z') { e.preventDefault(); redo(); }
-        return;
-      }
-
-      switch (e.key.toLowerCase()) {
-        case 'v': setActiveTool('select'); break;
-        case 'r': setActiveTool('draw-frame'); break;
-        case 'm': setActiveTool('add-mullion-v'); break;
-        case 't': setActiveTool('add-mullion-h'); break;
-        case 's': setActiveTool('add-sash'); break;
-        case 'h': setActiveTool('pan'); break;
-        case 'g': toggleSnapToGrid(); break;
-        case 'd': toggleDimensions(); break;
+      switch (e.key) {
         case '3': handleSetViewMode(viewMode === '3d' ? '2d' : '3d'); break;
         case '4': handleSetViewMode(viewMode === 'scene' ? '2d' : 'scene'); break;
-        case 'delete':
-        case 'backspace':
-          handleDeleteSelected();
-          break;
-        case 'escape':
-          setActiveTool('select');
-          selectElement(null, null);
-          break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleDeleteSelected, undo, redo, setActiveTool, handleSetViewMode, viewMode, toggleSnapToGrid, toggleDimensions, selectElement]);
+  }, [handleSetViewMode, viewMode]);
 
   return (
     <div className="h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden">
