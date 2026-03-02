@@ -59,6 +59,8 @@ const SASH_OPTIONS: { type: SashType; label: string; icon: string }[] = [
   { type: 'tilt-turn-right', label: '右内倒', icon: '⊿' },
   { type: 'sliding-left', label: '左推拉', icon: '⇐' },
   { type: 'sliding-right', label: '右推拉', icon: '⇒' },
+  { type: 'folding-left', label: '左折叠', icon: '⋘' },
+  { type: 'folding-right', label: '右折叠', icon: '⋙' },
 ];
 
 export default function Toolbox() {

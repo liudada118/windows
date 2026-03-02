@@ -569,6 +569,37 @@ function createTopHungWindow(id: string, x: number, y: number, series: ProfileSe
   return win;
 }
 
+// 新增: 四等分窗 (上下+左右)
+function createFourPanelWindow(id: string, x: number, y: number, series: ProfileSeries): WindowUnit {
+  const w = 2000, h = 2000;
+  const win = createWindowUnit(w, h, x, y, series, '四等分窗');
+  const pw = series.frameWidth;
+  const mw = series.mullionWidth;
+  const innerW = w - pw * 2;
+  const innerH = h - pw * 2;
+  const midX = pw + innerW / 2;
+  const midY = pw + innerH / 2;
+
+  const topOpening = win.frame.openings[0];
+  // 先横向分割
+  const splitH = splitOpening(topOpening, 'horizontal', midY, mw);
+  // 上半部分竖向分割
+  const topChild = splitH.childOpenings[0];
+  const splitTop = splitOpening(topChild, 'vertical', midX, mw);
+  splitTop.childOpenings[0].sash = createSash('casement-left', splitTop.childOpenings[0].rect, series.sashWidth);
+  splitTop.childOpenings[1].sash = createSash('casement-right', splitTop.childOpenings[1].rect, series.sashWidth);
+  // 下半部分竖向分割
+  const bottomChild = splitH.childOpenings[1];
+  const splitBottom = splitOpening(bottomChild, 'vertical', midX, mw);
+  splitBottom.childOpenings[0].sash = createSash('fixed', splitBottom.childOpenings[0].rect, series.sashWidth);
+  splitBottom.childOpenings[1].sash = createSash('fixed', splitBottom.childOpenings[1].rect, series.sashWidth);
+
+  splitH.childOpenings[0] = splitTop;
+  splitH.childOpenings[1] = splitBottom;
+  win.frame.openings = [splitH];
+  return win;
+}
+
 // 新增: 内开内倒窗
 function createTiltTurnWindow(id: string, x: number, y: number, series: ProfileSeries): WindowUnit {
   const w = 800, h = 1400;
@@ -641,5 +672,14 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
     width: 800,
     height: 1400,
     create: createTiltTurnWindow,
+  },
+  {
+    id: 'four-panel',
+    name: '四等分窗',
+    icon: '⊞',
+    description: '四等分窗（上开+下固定）',
+    width: 2000,
+    height: 2000,
+    create: createFourPanelWindow,
   },
 ];
