@@ -1,5 +1,6 @@
 // WindoorDesigner - Konva.js 主画布容器
 // Stage → Layer 结构，集成所有渲染层和交互逻辑
+// 支持鼠标和触摸操作（移动端双指缩放/平移 + 单指工具操作）
 
 import { useRef, useCallback, useEffect, useState } from 'react';
 import { Stage, Layer, Group, Rect, Line, Text } from 'react-konva';
@@ -23,9 +24,29 @@ interface KonvaCanvasProps {
   height: number;
 }
 
+/** 计算两个触摸点之间的距离 */
+function getTouchDistance(touches: TouchList): number {
+  if (touches.length < 2) return 0;
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** 计算两个触摸点的中心点 */
+function getTouchCenter(touches: TouchList): { x: number; y: number } {
+  if (touches.length < 2) {
+    return { x: touches[0]?.clientX || 0, y: touches[0]?.clientY || 0 };
+  }
+  return {
+    x: (touches[0].clientX + touches[1].clientX) / 2,
+    y: (touches[0].clientY + touches[1].clientY) / 2,
+  };
+}
+
 /** Konva.js 主画布组件 */
 export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Design Store
   const designData = useDesignStore((s) => s.designData);
@@ -34,7 +55,6 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const activeSashType = useDesignStore((s) => s.activeSashType);
   const activeProfileSeries = useDesignStore((s) => s.activeProfileSeries);
   const addWindow = useDesignStore((s) => s.addWindow);
-  const deleteWindow = useDesignStore((s) => s.deleteWindow);
   const selectWindow = useDesignStore((s) => s.selectWindow);
   const selectElement = useDesignStore((s) => s.selectElement);
   const updateWindowPosition = useDesignStore((s) => s.updateWindowPosition);
@@ -55,6 +75,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const drawPreview = useCanvasStore((s) => s.drawPreview);
   const hoveredOpeningId = useCanvasStore((s) => s.hoveredOpeningId);
   const setActiveTool = useCanvasStore((s) => s.setActiveTool);
+  const setZoom = useCanvasStore((s) => s.setZoom);
   const zoomAtPoint = useCanvasStore((s) => s.zoomAtPoint);
   const setPan = useCanvasStore((s) => s.setPan);
   const setMullionPreview = useCanvasStore((s) => s.setMullionPreview);
@@ -65,7 +86,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   // History Store
   const pushHistory = useHistoryStore((s) => s.pushHistory);
 
-  // 本地交互状态
+  // 本地交互状态 - 鼠标
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -79,6 +100,13 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     type: 'vertical' | 'horizontal';
   } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
+
+  // 本地交互状态 - 触摸
+  const [isTouchPinching, setIsTouchPinching] = useState(false);
+  const [lastTouchDistance, setLastTouchDistance] = useState(0);
+  const [lastTouchCenter, setLastTouchCenter] = useState({ x: 0, y: 0 });
+  const [touchStartTime, setTouchStartTime] = useState(0);
+  const [isSingleTouchActive, setIsSingleTouchActive] = useState(false);
 
   /** 屏幕坐标转世界坐标 */
   const screenToWorld = useCallback(
@@ -114,6 +142,19 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     },
     [designData.windows, screenToWorld]
   );
+
+  /** 获取触摸点相对于 Stage 的坐标 */
+  const getTouchStagePos = useCallback((touch: Touch) => {
+    const container = containerRef.current;
+    if (!container) return { x: 0, y: 0 };
+    const rect = container.getBoundingClientRect();
+    return {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top,
+    };
+  }, []);
+
+  // ========== 鼠标事件 ==========
 
   // ===== 鼠标按下 =====
   const handleMouseDown = useCallback(
@@ -359,7 +400,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
 
   // ===== 鼠标松开 =====
   const handleMouseUp = useCallback(
-    (e: KonvaEventObject<MouseEvent>) => {
+    () => {
       // 结束平移
       if (isPanning) {
         setIsPanning(false);
@@ -421,6 +462,325 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     [zoomAtPoint]
   );
 
+  // ========== 触摸事件 ==========
+
+  // ===== 触摸开始 =====
+  const handleTouchStart = useCallback(
+    (e: KonvaEventObject<TouchEvent>) => {
+      e.evt.preventDefault();
+      const touches = e.evt.touches;
+
+      if (touches.length >= 2) {
+        // 双指 → 缩放/平移模式
+        setIsTouchPinching(true);
+        setIsSingleTouchActive(false);
+        setIsDrawing(false);
+        setIsDraggingWindow(false);
+        setIsDraggingMullion(false);
+        setLastTouchDistance(getTouchDistance(touches));
+        setLastTouchCenter(getTouchCenter(touches));
+        return;
+      }
+
+      if (touches.length === 1) {
+        // 单指触摸
+        setIsSingleTouchActive(true);
+        setTouchStartTime(Date.now());
+        const pos = getTouchStagePos(touches[0]);
+        const world = screenToWorld(pos.x, pos.y);
+
+        switch (activeTool) {
+          case 'pan': {
+            setIsPanning(true);
+            setPanStart({ x: pos.x - panX, y: pos.y - panY });
+            break;
+          }
+
+          case 'select': {
+            const win = findWindowAtScreen(pos.x, pos.y);
+            if (win) {
+              // 检查是否点击了中梃
+              const localX = world.x - win.posX;
+              const localY = world.y - win.posY;
+              const rootOpening = win.frame.openings[0];
+              if (rootOpening) {
+                const mullionHit = findMullionAtPointGeo(rootOpening, localX, localY, 12); // 触摸增大命中区域
+                if (mullionHit) {
+                  pushHistory(getSnapshot());
+                  setIsDraggingMullion(true);
+                  setDraggingMullionInfo({
+                    mullionId: mullionHit.mullion.id,
+                    windowId: win.id,
+                    type: mullionHit.mullion.type,
+                  });
+                  selectWindow(win.id);
+                  selectElement(mullionHit.mullion.id, 'mullion');
+                  return;
+                }
+              }
+
+              selectWindow(win.id);
+              setIsDraggingWindow(true);
+              setDragOffset({ x: world.x - win.posX, y: world.y - win.posY });
+            } else {
+              selectWindow(null);
+            }
+            break;
+          }
+
+          case 'draw-frame': {
+            setIsDrawing(true);
+            setDrawStart({ x: snap(world.x), y: snap(world.y) });
+            break;
+          }
+
+          case 'add-mullion-v':
+          case 'add-mullion-h': {
+            const win = findWindowAtScreen(pos.x, pos.y);
+            if (!win) {
+              toast.error('请先点击一个窗口内部');
+              return;
+            }
+            const localX = world.x - win.posX;
+            const localY = world.y - win.posY;
+            const rootOpening = win.frame.openings[0];
+            if (!rootOpening) return;
+
+            const opening = findLeafOpeningAtPoint(rootOpening, localX, localY);
+            if (!opening) {
+              toast.error('请点击窗口内的空白分格区域');
+              return;
+            }
+            if (opening.isSplit) return;
+            if (opening.sash) {
+              toast.error('该分格已有扇，请先删除扇再添加中梃');
+              return;
+            }
+
+            const direction = activeTool === 'add-mullion-v' ? 'vertical' : 'horizontal';
+            const position = direction === 'vertical' ? snap(localX) : snap(localY);
+
+            const validation = validateMullionPlacement(
+              opening,
+              direction,
+              position,
+              activeProfileSeries.mullionWidth
+            );
+            if (!validation.valid) {
+              toast.error(validation.errors[0] || '中梃位置无效');
+              return;
+            }
+
+            pushHistory(getSnapshot());
+            addMullion(win.id, opening.id, direction, position);
+            toast.success(direction === 'vertical' ? '已添加中梃' : '已添加横档');
+            setMullionPreview(null);
+            break;
+          }
+
+          case 'add-sash': {
+            const win = findWindowAtScreen(pos.x, pos.y);
+            if (!win) {
+              toast.error('请先点击一个窗口内部');
+              return;
+            }
+            const localX = world.x - win.posX;
+            const localY = world.y - win.posY;
+            const rootOpening = win.frame.openings[0];
+            if (!rootOpening) return;
+
+            const opening = findLeafOpeningAtPoint(rootOpening, localX, localY);
+            if (!opening) return;
+
+            const validation = validateSashPlacement(opening);
+            if (!validation.valid) {
+              toast.error(validation.errors[0] || '无法添加扇');
+              return;
+            }
+
+            pushHistory(getSnapshot());
+            setSash(win.id, opening.id, activeSashType);
+            toast.success('已添加扇');
+            setActiveTool('select');
+            break;
+          }
+        }
+      }
+    },
+    [
+      activeTool, panX, panY, zoom, screenToWorld, snap, getTouchStagePos,
+      findWindowAtScreen, selectWindow, selectElement, pushHistory,
+      getSnapshot, addMullion, setSash, activeSashType, activeProfileSeries,
+      setActiveTool, setMullionPreview,
+    ]
+  );
+
+  // ===== 触摸移动 =====
+  const handleTouchMove = useCallback(
+    (e: KonvaEventObject<TouchEvent>) => {
+      e.evt.preventDefault();
+      const touches = e.evt.touches;
+
+      // 双指缩放/平移
+      if (touches.length >= 2 && isTouchPinching) {
+        const newDistance = getTouchDistance(touches);
+        const newCenter = getTouchCenter(touches);
+
+        // 缩放
+        if (lastTouchDistance > 0) {
+          const scaleRatio = newDistance / lastTouchDistance;
+          const container = containerRef.current;
+          if (container) {
+            const rect = container.getBoundingClientRect();
+            const centerX = newCenter.x - rect.left;
+            const centerY = newCenter.y - rect.top;
+
+            const newZoom = Math.max(0.1, Math.min(10, zoom * scaleRatio));
+            const zoomDelta = newZoom / zoom;
+            const newPanX = centerX - (centerX - panX) * zoomDelta;
+            const newPanY = centerY - (centerY - panY) * zoomDelta;
+
+            setZoom(newZoom);
+            setPan(newPanX, newPanY);
+          }
+        }
+
+        // 平移（双指中心点移动）
+        const dx = newCenter.x - lastTouchCenter.x;
+        const dy = newCenter.y - lastTouchCenter.y;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          setPan(panX + dx, panY + dy);
+        }
+
+        setLastTouchDistance(newDistance);
+        setLastTouchCenter(newCenter);
+        return;
+      }
+
+      // 单指操作
+      if (touches.length === 1 && isSingleTouchActive) {
+        const pos = getTouchStagePos(touches[0]);
+        const world = screenToWorld(pos.x, pos.y);
+        setMouseWorldPos(world.x, world.y);
+
+        // 平移
+        if (isPanning) {
+          setPan(pos.x - panStart.x, pos.y - panStart.y);
+          return;
+        }
+
+        // 拖拽窗户
+        if (isDraggingWindow && selectedWindowId) {
+          const newX = snap(world.x - dragOffset.x);
+          const newY = snap(world.y - dragOffset.y);
+          updateWindowPosition(selectedWindowId, newX, newY);
+          return;
+        }
+
+        // 拖拽中梃
+        if (isDraggingMullion && draggingMullionInfo) {
+          const win = designData.windows.find((w) => w.id === draggingMullionInfo.windowId);
+          if (!win) return;
+          const localX = world.x - win.posX;
+          const localY = world.y - win.posY;
+          const newPosition =
+            draggingMullionInfo.type === 'vertical' ? snap(localX) : snap(localY);
+          moveMullion(draggingMullionInfo.windowId, draggingMullionInfo.mullionId, newPosition);
+          return;
+        }
+
+        // 绘制外框预览
+        if (isDrawing) {
+          const endX = snap(world.x);
+          const endY = snap(world.y);
+          const x = Math.min(drawStart.x, endX);
+          const y = Math.min(drawStart.y, endY);
+          const w = Math.abs(endX - drawStart.x);
+          const h = Math.abs(endY - drawStart.y);
+          setDrawPreview({ x, y, width: w, height: h });
+          return;
+        }
+      }
+    },
+    [
+      isTouchPinching, isSingleTouchActive, lastTouchDistance, lastTouchCenter,
+      isPanning, panStart, isDraggingWindow, isDraggingMullion, isDrawing,
+      selectedWindowId, draggingMullionInfo, drawStart, zoom, panX, panY,
+      screenToWorld, snap, getTouchStagePos, designData.windows,
+      setZoom, setPan, updateWindowPosition, moveMullion, setDrawPreview,
+      setMouseWorldPos, dragOffset,
+    ]
+  );
+
+  // ===== 触摸结束 =====
+  const handleTouchEnd = useCallback(
+    (e: KonvaEventObject<TouchEvent>) => {
+      e.evt.preventDefault();
+      const remainingTouches = e.evt.touches.length;
+
+      // 双指结束
+      if (isTouchPinching && remainingTouches < 2) {
+        setIsTouchPinching(false);
+        setLastTouchDistance(0);
+        // 如果还有一根手指，不要触发单指操作
+        if (remainingTouches === 1) {
+          setIsSingleTouchActive(false);
+        }
+        return;
+      }
+
+      // 单指结束
+      if (isSingleTouchActive && remainingTouches === 0) {
+        setIsSingleTouchActive(false);
+
+        // 结束平移
+        if (isPanning) {
+          setIsPanning(false);
+          return;
+        }
+
+        // 结束窗户拖拽
+        if (isDraggingWindow) {
+          setIsDraggingWindow(false);
+          return;
+        }
+
+        // 结束中梃拖拽
+        if (isDraggingMullion) {
+          setIsDraggingMullion(false);
+          setDraggingMullionInfo(null);
+          return;
+        }
+
+        // 结束绘制外框
+        if (isDrawing && drawPreview) {
+          setIsDrawing(false);
+          setDrawPreview(null);
+
+          const { width: w, height: h } = drawPreview;
+          const validation = validateWindowSize(w, h);
+          if (!validation.valid) {
+            toast.error(validation.errors[0]);
+            return;
+          }
+
+          pushHistory(getSnapshot());
+          addWindow(w, h, drawPreview.x, drawPreview.y);
+          setActiveTool('select');
+          toast.success(`已创建窗户 (${Math.round(w)} × ${Math.round(h)})`);
+          return;
+        }
+
+        setIsDrawing(false);
+      }
+    },
+    [
+      isTouchPinching, isSingleTouchActive, isPanning, isDraggingWindow,
+      isDraggingMullion, isDrawing, drawPreview, pushHistory, getSnapshot,
+      addWindow, setActiveTool, setDrawPreview,
+    ]
+  );
+
   // ===== 空格键平移 =====
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -443,6 +803,30 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     };
   }, []);
 
+  // ===== 阻止移动端默认触摸行为（防止页面滚动/缩放） =====
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const preventDefaultTouch = (e: TouchEvent) => {
+      // 阻止浏览器默认的触摸缩放和滚动
+      if (e.touches.length >= 1) {
+        e.preventDefault();
+      }
+    };
+
+    // 使用 passive: false 确保 preventDefault 生效
+    container.addEventListener('touchstart', preventDefaultTouch, { passive: false });
+    container.addEventListener('touchmove', preventDefaultTouch, { passive: false });
+    container.addEventListener('touchend', preventDefaultTouch, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', preventDefaultTouch);
+      container.removeEventListener('touchmove', preventDefaultTouch);
+      container.removeEventListener('touchend', preventDefaultTouch);
+    };
+  }, []);
+
   // 光标样式
   const getCursor = () => {
     if (isPanning || spaceHeld) return 'grab';
@@ -459,7 +843,10 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const scale = MM_TO_PX * zoom;
 
   return (
-    <div style={{ cursor: getCursor(), width: '100%', height: '100%' }}>
+    <div
+      ref={containerRef}
+      style={{ cursor: getCursor(), width: '100%', height: '100%', touchAction: 'none' }}
+    >
       <Stage
         ref={stageRef}
         width={width}
@@ -468,6 +855,9 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         {/* L0 - 网格背景 */}
         <GridLayer width={width} height={height} zoom={zoom} panX={panX} panY={panY} />
