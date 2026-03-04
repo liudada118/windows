@@ -55,6 +55,7 @@ export function findOpeningById(
 
 /**
  * 在 Opening 树中查找包含指定点的中梃
+ * tolerance 是额外的命中扩展（mm），实际命中区域 = profileWidth/2 + tolerance
  */
 export function findMullionAtPoint(
   opening: Opening,
@@ -63,9 +64,11 @@ export function findMullionAtPoint(
   tolerance: number = 8
 ): { mullion: Mullion; parentOpening: Opening } | null {
   for (const mullion of opening.mullions) {
+    // 使用中梃实际宽度来判断命中，命中区域 = profileWidth/2 + tolerance
+    const halfWidth = (mullion.profileWidth || 70) / 2 + tolerance;
     if (mullion.type === 'vertical') {
       if (
-        Math.abs(x - mullion.position) < tolerance &&
+        Math.abs(x - mullion.position) < halfWidth &&
         y >= opening.rect.y &&
         y <= opening.rect.y + opening.rect.height
       ) {
@@ -73,7 +76,7 @@ export function findMullionAtPoint(
       }
     } else {
       if (
-        Math.abs(y - mullion.position) < tolerance &&
+        Math.abs(y - mullion.position) < halfWidth &&
         x >= opening.rect.x &&
         x <= opening.rect.x + opening.rect.width
       ) {
