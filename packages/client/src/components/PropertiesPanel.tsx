@@ -252,6 +252,28 @@ export default function PropertiesPanel({
     }
   };
 
+  // v2.2: 窗户尺寸精确输入（配合 EditableValue 组件）
+  const handleResize = useCallback((dimension: 'width' | 'height', value: number) => {
+    if (!selectedWindow) return;
+    const clampedValue = Math.max(
+      dimension === 'width' ? CONSTRAINTS.MIN_WINDOW_WIDTH : CONSTRAINTS.MIN_WINDOW_HEIGHT,
+      Math.min(
+        dimension === 'width' ? CONSTRAINTS.MAX_WINDOW_WIDTH : CONSTRAINTS.MAX_WINDOW_HEIGHT,
+        value
+      )
+    );
+    if (dimension === 'width' && clampedValue === selectedWindow.width) return;
+    if (dimension === 'height' && clampedValue === selectedWindow.height) return;
+    const newWidth = dimension === 'width' ? clampedValue : selectedWindow.width;
+    const newHeight = dimension === 'height' ? clampedValue : selectedWindow.height;
+    const resized = resizeWindowUnit(selectedWindow, newWidth, newHeight);
+    onUpdateWindow(selectedWindow.id, {
+      width: resized.width,
+      height: resized.height,
+      frame: resized.frame,
+    });
+  }, [selectedWindow, onUpdateWindow]);
+
   // v2.1: 获取选中的中梃信息
   const selectedMullionInfo = useMemo(() => {
     if (!selectedWindow || !selectedElementId || selectedElementType !== 'mullion') return null;

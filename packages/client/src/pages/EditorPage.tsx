@@ -467,6 +467,8 @@ export default function EditorPage() {
             selectedWindow={selectedWindow}
             activeProfileSeries={activeProfileSeries}
             activeSashType={activeSashType}
+            selectedElementId={selectedElementId}
+            selectedElementType={selectedElementType}
             onUpdateWindow={handleUpdateWindowWithHistory}
             onProfileSeriesChange={setActiveProfileSeries}
             onSashTypeChange={setActiveSashType}

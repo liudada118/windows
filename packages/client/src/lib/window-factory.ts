@@ -195,6 +195,67 @@ export function findMullionAtPoint(
 
 // ===== 中梃拖拽更新 =====
 
+// ===== 保持子中梃绝对位置不变的递归更新 =====
+
+function rebuildOpeningWithFixedMullions(opening: Opening, newRect: Rect): Opening {
+  let updatedSash: Sash | null = null;
+  if (opening.sash) {
+    updatedSash = { ...opening.sash, rect: newRect };
+  }
+
+  // 叶子节点：直接更新 rect
+  if (!opening.isSplit || opening.childOpenings.length === 0) {
+    return { ...opening, rect: newRect, sash: updatedSash };
+  }
+
+  // 有子分格：保持中梃绝对位置不变，重新计算子 Opening 的 rect
+  const mullion = opening.mullions[0];
+  const halfMullion = mullion.profileWidth / 2;
+
+  let child0Rect: Rect;
+  let child1Rect: Rect;
+
+  if (mullion.type === 'vertical') {
+    child0Rect = createRect(
+      newRect.x,
+      newRect.y,
+      mullion.position - newRect.x - halfMullion,
+      newRect.height
+    );
+    child1Rect = createRect(
+      mullion.position + halfMullion,
+      newRect.y,
+      newRect.x + newRect.width - mullion.position - halfMullion,
+      newRect.height
+    );
+  } else {
+    child0Rect = createRect(
+      newRect.x,
+      newRect.y,
+      newRect.width,
+      mullion.position - newRect.y - halfMullion
+    );
+    child1Rect = createRect(
+      newRect.x,
+      mullion.position + halfMullion,
+      newRect.width,
+      newRect.y + newRect.height - mullion.position - halfMullion
+    );
+  }
+
+  const updatedChildren = opening.childOpenings.map((child, i) => {
+    const childNewRect = i === 0 ? child0Rect : child1Rect;
+    return rebuildOpeningWithFixedMullions(child, childNewRect);
+  });
+
+  return {
+    ...opening,
+    rect: newRect,
+    sash: updatedSash,
+    childOpenings: updatedChildren,
+  };
+}
+
 export function updateOpeningAfterMullionDrag(
   opening: Opening,
   mullionId: string,
@@ -240,10 +301,10 @@ export function updateOpeningAfterMullionDrag(
     );
   }
 
-  // 递归更新子Opening内部结构
+  // 递归更新子Opening内部结构（保持子中梃绝对位置不变）
   const updatedChildren = opening.childOpenings.map((child, i) => {
     const newRect = i === 0 ? child1Rect : child2Rect;
-    return resizeOpeningRecursive(child, newRect);
+    return rebuildOpeningWithFixedMullions(child, newRect);
   });
 
   return {
