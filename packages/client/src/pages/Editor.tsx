@@ -1,8 +1,9 @@
-// WindoorDesigner - 主编辑器页面 v2.0
+// WindoorDesigner - 主编辑器页面 v2.1
 // 工业蓝图美学: 三栏式布局 - 左工具栏 + 中画布 + 右属性面板
 // 移动端适配: 底部工具栏 + 触摸手势 + 抽屉面板
 // 3D预览: Three.js集成，支持2D/3D一键切换
 // v2.0: 交互式添加中梃/扇、中梃拖拽、删除功能、边界校验
+// v2.1: 精确数值输入 - 双击尺寸标注弹出输入框、键盘方向键微调中梃
 
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { useEditorStore } from '@/hooks/useEditorStore';
@@ -30,6 +31,9 @@ import type { ToolType, WindowUnit, Opening, Rect } from '@/lib/types';
 import { CONSTRAINTS } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
+import DimensionInput from '@/components/DimensionInput';
+import type { DimensionTarget } from '@/lib/dimension-hit-test';
+import { hitTestDimension, getDimensionScreenPosition, calculateNewMullionPosition } from '@/lib/dimension-hit-test';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { Menu, Box, PenTool, Loader2, Camera } from 'lucide-react';
 
@@ -90,6 +94,10 @@ export default function Editor() {
     windowId: string;
     openingRect: Rect;
   } | null>(null);
+
+  // v2.1: 精确输入状态
+  const [dimensionEditTarget, setDimensionEditTarget] = useState<DimensionTarget | null>(null);
+  const [dimensionEditPos, setDimensionEditPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Responsive
   const isTouch = useIsTouch();
@@ -621,6 +629,107 @@ export default function Editor() {
     }
   }, [state, pushHistory, updateWindow, removeWindow, selectElement]);
 
+  // v2.1: 双击处理 - 精确输入尺寸
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (isTouch) return;
+    if (dimensionEditTarget) return; // 已有输入框打开
+    const rect = canvasContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    console.log('[DblClick] sx=', sx, 'sy=', sy, 'zoom=', state.zoom, 'panX=', state.panX, 'panY=', state.panY, 'windows=', state.windows.length);
+    const hit = hitTestDimension(sx, sy, state.windows, state.zoom, state.panX, state.panY);
+    console.log('[DblClick] hit=', hit);
+    if (hit) {
+      e.preventDefault();
+      e.stopPropagation();
+      const pos = getDimensionScreenPosition(hit, state.windows, state.zoom, state.panX, state.panY);
+      setDimensionEditTarget(hit);
+      setDimensionEditPos(pos);
+    }
+  }, [isTouch, dimensionEditTarget, state.windows, state.zoom, state.panX, state.panY]);
+
+  // v2.1: 精确输入确认
+  const handleDimensionConfirm = useCallback((newValue: number) => {
+    if (!dimensionEditTarget) return;
+
+    const win = state.windows.find(w => w.id === dimensionEditTarget.windowId);
+    if (!win) { setDimensionEditTarget(null); return; }
+
+    pushHistory();
+
+    switch (dimensionEditTarget.type) {
+      case 'window-width': {
+        const resized = resizeWindowUnit(win, newValue, win.height);
+        updateWindow(win.id, { width: resized.width, height: resized.height, frame: resized.frame });
+        toast.success(`宽度已设为 ${newValue}mm`);
+        break;
+      }
+      case 'window-height': {
+        const resized = resizeWindowUnit(win, win.width, newValue);
+        updateWindow(win.id, { width: resized.width, height: resized.height, frame: resized.frame });
+        toast.success(`高度已设为 ${newValue}mm`);
+        break;
+      }
+      case 'opening-width':
+      case 'opening-height': {
+        const newPosition = calculateNewMullionPosition(dimensionEditTarget, newValue);
+        const mullionWidth = state.activeProfileSeries.mullionWidth;
+        const newFrame = JSON.parse(JSON.stringify(win.frame));
+        newFrame.openings = updateMullionInOpenings(newFrame.openings, dimensionEditTarget.mullionId, newPosition, mullionWidth);
+        updateWindow(win.id, { frame: newFrame });
+        toast.success(`分格尺寸已设为 ${newValue}mm`);
+        break;
+      }
+    }
+
+    setDimensionEditTarget(null);
+  }, [dimensionEditTarget, state.windows, state.activeProfileSeries.mullionWidth, pushHistory, updateWindow]);
+
+  const handleDimensionCancel = useCallback(() => {
+    setDimensionEditTarget(null);
+  }, []);
+
+  // v2.1: 键盘方向键微调中梃
+  const handleMullionNudge = useCallback((direction: 'left' | 'right' | 'up' | 'down', step: number) => {
+    if (!state.selectedElementId || !state.selectedWindowId || state.selectedElementType !== 'mullion') return;
+
+    const win = state.windows.find(w => w.id === state.selectedWindowId);
+    if (!win) return;
+
+    // 找到中梃
+    const findMullion = (openings: Opening[]): { mullion: any; parentOpening: Opening } | null => {
+      for (const o of openings) {
+        const m = o.mullions.find(m => m.id === state.selectedElementId);
+        if (m) return { mullion: m, parentOpening: o };
+        if (o.childOpenings.length > 0) {
+          const found = findMullion(o.childOpenings);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const found = findMullion(win.frame.openings);
+    if (!found) return;
+
+    const { mullion } = found;
+    let delta = 0;
+    if (mullion.type === 'vertical') {
+      delta = (direction === 'left' ? -step : direction === 'right' ? step : 0);
+    } else {
+      delta = (direction === 'up' ? -step : direction === 'down' ? step : 0);
+    }
+    if (delta === 0) return;
+
+    const newPosition = mullion.position + delta;
+    const mullionWidth = state.activeProfileSeries.mullionWidth;
+    const newFrame = JSON.parse(JSON.stringify(win.frame));
+    newFrame.openings = updateMullionInOpenings(newFrame.openings, mullion.id, newPosition, mullionWidth);
+    updateWindow(win.id, { frame: newFrame });
+  }, [state.selectedElementId, state.selectedWindowId, state.selectedElementType, state.windows, state.activeProfileSeries.mullionWidth, updateWindow]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -631,6 +740,17 @@ export default function Editor() {
         if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
         if (e.key === 'Z') { e.preventDefault(); redo(); }
         return;
+      }
+
+      // v2.1: 方向键微调中梃
+      if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
+        if (state.selectedElementType === 'mullion') {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          const dir = e.key.toLowerCase().replace('arrow', '') as 'left' | 'right' | 'up' | 'down';
+          handleMullionNudge(dir, step);
+          return;
+        }
       }
 
       switch (e.key.toLowerCase()) {
@@ -650,7 +770,7 @@ export default function Editor() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleDeleteSelected, undo, redo, setTool, toggleViewMode, handleSetViewMode, viewMode]);
+  }, [handleDeleteSelected, handleMullionNudge, state.selectedElementType, undo, redo, setTool, toggleViewMode, handleSetViewMode, viewMode]);
 
   // Add template
   const handleAddTemplate = useCallback((templateId: string) => {
@@ -799,6 +919,7 @@ export default function Editor() {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
@@ -817,6 +938,34 @@ export default function Editor() {
               height={canvasSize.height}
               mullionPreview={mullionPreview}
             />
+
+            {/* v2.1: 精确输入浮层 */}
+            {dimensionEditTarget && (
+              <DimensionInput
+                x={dimensionEditPos.x}
+                y={dimensionEditPos.y}
+                value={dimensionEditTarget.currentValue}
+                min={
+                  dimensionEditTarget.type === 'window-width' ? CONSTRAINTS.MIN_WINDOW_WIDTH :
+                  dimensionEditTarget.type === 'window-height' ? CONSTRAINTS.MIN_WINDOW_HEIGHT :
+                  CONSTRAINTS.MIN_OPENING_SIZE
+                }
+                max={
+                  dimensionEditTarget.type === 'window-width' ? CONSTRAINTS.MAX_WINDOW_WIDTH :
+                  dimensionEditTarget.type === 'window-height' ? CONSTRAINTS.MAX_WINDOW_HEIGHT :
+                  dimensionEditTarget.type === 'opening-width' ? CONSTRAINTS.MAX_WINDOW_WIDTH :
+                  CONSTRAINTS.MAX_WINDOW_HEIGHT
+                }
+                label={
+                  dimensionEditTarget.type === 'window-width' ? '宽' :
+                  dimensionEditTarget.type === 'window-height' ? '高' :
+                  dimensionEditTarget.type === 'opening-width' ? '分格宽' :
+                  dimensionEditTarget.type === 'opening-height' ? '分格高' : ''
+                }
+                onConfirm={handleDimensionConfirm}
+                onCancel={handleDimensionCancel}
+              />
+            )}
 
             {/* Drawing preview overlay */}
             {isDrawing && (
@@ -926,6 +1075,8 @@ export default function Editor() {
             selectedWindow={selectedWindow}
             activeProfileSeries={state.activeProfileSeries}
             activeSashType={state.activeSashType}
+            selectedElementId={state.selectedElementId}
+            selectedElementType={state.selectedElementType}
             onUpdateWindow={updateWindowWithHistory}
             onProfileSeriesChange={setProfileSeries}
             onSashTypeChange={setSashType}
