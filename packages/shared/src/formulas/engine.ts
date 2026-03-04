@@ -17,6 +17,9 @@
 
 import type { Formula, ProfileFormula, GlassFormula, AddonFormula, PricingRule } from '../types/formula';
 
+// 声明console以兼容非DOM环境
+declare const console: { warn: (...args: any[]) => void; log: (...args: any[]) => void };
+
 // ===== 算料结果类型 =====
 
 export interface MaterialItem {
@@ -30,7 +33,7 @@ export interface MaterialItem {
   note?: string;
 }
 
-export interface QuoteItem {
+export interface FormulaQuoteItem {
   name: string;
   price: number;
   quantity: number;
@@ -42,7 +45,7 @@ export interface CalculationResult {
   profiles: MaterialItem[];
   glass: MaterialItem[];
   addons: MaterialItem[];
-  quote: QuoteItem[];
+  quote: FormulaQuoteItem[];
   totalPrice: number;
   totalArea: number;
 }
@@ -274,8 +277,8 @@ function calculateQuote(
   pricing: PricingRule[],
   area: number,
   sashCount: number,
-): QuoteItem[] {
-  const results: QuoteItem[] = [];
+): FormulaQuoteItem[] {
+  const results: FormulaQuoteItem[] = [];
 
   for (const rule of pricing) {
     let quantity = 0;

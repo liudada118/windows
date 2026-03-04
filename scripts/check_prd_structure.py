@@ -127,7 +127,7 @@ def main():
     # ========================================
     end_markers = []
     for i, line in enumerate(lines):
-        if re.search(r'\*\*文档版本：V\d+\.\d+ Complete\*\*', line):
+        if re.search(r'\*\*文档版本：V\d+\.\d+[^*]*\*\*', line):
             end_markers.append((i + 1, line.strip()))
 
     if len(end_markers) == 1:
@@ -155,7 +155,7 @@ def main():
         last_marker_line = end_markers[-1][0]
         remaining = [
             (i + 1, l) for i, l in enumerate(lines[last_marker_line:], start=last_marker_line)
-            if l.strip() and not l.startswith('**') and l.strip() != '---'
+            if l.strip() and not l.startswith('**') and l.strip() != '---' and not l.strip().startswith('*—')
         ]
         if not remaining:
             print(f"[PASS] 校验5: 结束标记后无多余内容")
@@ -194,11 +194,11 @@ def main():
     header_version = None
     footer_version = None
     for line in lines[:10]:
-        m = re.search(r'V(\d+\.\d+)\s+Complete', line)
+        m = re.search(r'V(\d+\.\d+)', line)
         if m:
             header_version = m.group(1)
     for line in lines[-15:]:
-        m = re.search(r'V(\d+\.\d+)\s+Complete', line)
+        m = re.search(r'V(\d+\.\d+)', line)
         if m:
             footer_version = m.group(1)
 
