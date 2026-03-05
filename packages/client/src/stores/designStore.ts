@@ -13,6 +13,7 @@ import type {
   SashType,
   DesignData,
   Rect,
+  MaterialConfig,
 } from '@windoor/shared';
 import { DEFAULT_PROFILE_SERIES } from '@windoor/shared';
 import { DEFAULT_COLOR_CONFIG, DEFAULT_GLASS } from '@/lib/constants';
@@ -576,6 +577,8 @@ interface DesignStoreActions {
   getSelectedWindow: () => WindowUnit | null;
   /** 更新窗户属性 */
   updateWindow: (windowId: string, updates: Partial<WindowUnit>) => void;
+  /** 更新材料配置 */
+  updateMaterialConfig: (config: MaterialConfig) => void;
 }
 
 type DesignStore = DesignStoreState & DesignStoreActions;
@@ -586,6 +589,11 @@ function createEmptyDesign(): DesignData {
     id: nanoid(8),
     name: '新设计方案',
     windows: [],
+    materialConfig: {
+      name: '断桥铝',
+      colorPreset: 'dark-gray',
+      colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#ADD8E6', glassTint: 0.2 },
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -883,6 +891,16 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
         windows: state.designData.windows.map((w) =>
           w.id === windowId ? { ...w, ...updates } : w
         ),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+
+  updateMaterialConfig: (config) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        materialConfig: config,
         updatedAt: new Date().toISOString(),
       },
     }));

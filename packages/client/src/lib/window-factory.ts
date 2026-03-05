@@ -670,6 +670,69 @@ function createTiltTurnWindow(id: string, x: number, y: number, series: ProfileS
   return win;
 }
 
+// ===== 自定义等分窗创建 =====
+
+export function createCustomSplitWindow(
+  totalWidth: number,
+  totalHeight: number,
+  direction: 'vertical' | 'horizontal',
+  panelSizes: number[],
+  x: number,
+  y: number,
+  series: ProfileSeries
+): WindowUnit {
+  const win = createWindowUnit(totalWidth, totalHeight, x, y, series, `${panelSizes.length}等分窗`);
+  if (panelSizes.length <= 1) return win;
+
+  const mullionWidth = series.mullionWidth;
+  const rootOpening = win.frame.openings[0];
+
+  // 用递归方式分割：每次分割出第一格，剩余部分继续分割
+  const splitResult = buildSplitOpening(rootOpening, direction, panelSizes, mullionWidth);
+
+  return {
+    ...win,
+    frame: {
+      ...win.frame,
+      openings: [splitResult],
+    },
+  };
+}
+
+/** 递归分割Opening：每次分出第一格，剩余部分继续分割 */
+function buildSplitOpening(
+  opening: Opening,
+  direction: 'vertical' | 'horizontal',
+  sizes: number[],
+  mullionWidth: number
+): Opening {
+  if (sizes.length <= 1) return opening;
+
+  const halfMullion = mullionWidth / 2;
+  const firstSize = sizes[0];
+
+  // 计算中梃绝对位置
+  const position = direction === 'vertical'
+    ? opening.rect.x + firstSize + halfMullion
+    : opening.rect.y + firstSize + halfMullion;
+
+  // 分割当前Opening
+  const split = splitOpening(opening, direction, position, mullionWidth);
+
+  // 如果还有更多分割，递归处理第二个子Opening
+  if (sizes.length > 2) {
+    const remainingSizes = sizes.slice(1);
+    const updatedChild1 = split.childOpenings[1];
+    const recursiveChild = buildSplitOpening(updatedChild1, direction, remainingSizes, mullionWidth);
+    return {
+      ...split,
+      childOpenings: [split.childOpenings[0], recursiveChild],
+    };
+  }
+
+  return split;
+}
+
 export const WINDOW_TEMPLATES: WindowTemplate[] = [
   {
     id: 'fixed',

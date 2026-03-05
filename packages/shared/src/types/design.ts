@@ -132,11 +132,28 @@ export interface WindowTemplate {
   create: (id: string, x: number, y: number, series: ProfileSeries) => WindowUnit;
 }
 
+// ===== 颜色配置 =====
+export interface ColorConfig {
+  frameColor: string;     // 框色
+  sashColor: string;      // 扇色
+  mullionColor: string;   // 中梃色
+  glassColor: string;     // 玻璃色
+  glassTint: number;      // 玻璃透明度 0-1
+}
+
+// ===== 材料配置 =====
+export interface MaterialConfig {
+  name: string;           // 材料名称 (如 '断桥铝', '塑钢', '铝木复合')
+  colorPreset: string;    // 预设颜色方案名称
+  colors: ColorConfig;
+}
+
 // ===== 设计数据 (完整存储单元) =====
 export interface DesignData {
   id: string;
   name: string;
   windows: WindowUnit[];
+  materialConfig?: MaterialConfig;
   createdAt: string;
   updatedAt: string;
 }

@@ -76,6 +76,36 @@ export const DEFAULT_COLOR_CONFIG = {
   handleColor: '#C0C0C0',
 };
 
+import type { ColorConfig, MaterialConfig } from '@/lib/types';
+
+/** 预设颜色方案 */
+export const COLOR_PRESETS: { id: string; name: string; colors: ColorConfig }[] = [
+  { id: 'white', name: '白色', colors: { frameColor: '#F5F5F5', sashColor: '#F0F0F0', mullionColor: '#E8E8E8', glassColor: '#ADD8E6', glassTint: 0.15 } },
+  { id: 'dark-gray', name: '深灰', colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#ADD8E6', glassTint: 0.2 } },
+  { id: 'black', name: '黑色', colors: { frameColor: '#1A1A1A', sashColor: '#1A1A1A', mullionColor: '#2A2A2A', glassColor: '#87CEEB', glassTint: 0.25 } },
+  { id: 'champagne', name: '香槟色', colors: { frameColor: '#C4A35A', sashColor: '#C4A35A', mullionColor: '#B89B4E', glassColor: '#ADD8E6', glassTint: 0.15 } },
+  { id: 'wood-grain', name: '木纹色', colors: { frameColor: '#8B6914', sashColor: '#8B6914', mullionColor: '#7A5C12', glassColor: '#ADD8E6', glassTint: 0.15 } },
+  { id: 'silver', name: '银色', colors: { frameColor: '#C0C0C0', sashColor: '#B8B8B8', mullionColor: '#A8A8A8', glassColor: '#ADD8E6', glassTint: 0.18 } },
+  { id: 'bronze', name: '古铜色', colors: { frameColor: '#8B7355', sashColor: '#8B7355', mullionColor: '#7A6548', glassColor: '#ADD8E6', glassTint: 0.2 } },
+];
+
+/** 材料类型 */
+export const MATERIAL_TYPES = [
+  { id: 'bridge-aluminum', name: '断桥铝' },
+  { id: 'plastic-steel', name: '塑钢' },
+  { id: 'aluminum-wood', name: '铝木复合' },
+  { id: 'aluminum-alloy', name: '铝合金' },
+  { id: 'steel', name: '钢窗' },
+  { id: 'custom', name: '自定义' },
+];
+
+/** 默认材料配置 */
+export const DEFAULT_MATERIAL_CONFIG: MaterialConfig = {
+  name: '断桥铝',
+  colorPreset: 'dark-gray',
+  colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#ADD8E6', glassTint: 0.2 },
+};
+
 /** 画布缩放范围 */
 export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 5.0;

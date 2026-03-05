@@ -19,7 +19,9 @@ import {
   WINDOW_TEMPLATES,
   deleteMullionFromOpening,
   deleteSashFromOpening,
+  createCustomSplitWindow,
 } from '@/lib/window-factory';
+import type { SplitConfig } from '@/components/CustomSplitDialog';
 import type { WindowUnit } from '@/lib/types';
 import { toast } from 'sonner';
 import QuoteDialog from '@/components/QuoteDialog';
@@ -31,7 +33,10 @@ import { storageAdapter } from '@/lib/storageAdapter';
 import BOMPanel from '@/components/BOMPanel';
 import ExportDialog from '@/components/ExportDialog';
 import VersionManager from '@/components/VersionManager';
+import SketchPad from '@/components/SketchPad';
+import type { SketchRecognitionResult } from '@/components/SketchPad';
 import Konva from 'konva';
+import { useLocation } from 'wouter';
 
 const ThreePreview = lazy(() => import('@/components/ThreePreview'));
 const ScenePreview = lazy(() => import('@/components/ScenePreview'));
@@ -86,7 +91,9 @@ export default function EditorPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [sketchOpen, setSketchOpen] = useState(false);
   const stageRef = useRef<Konva.Stage | null>(null);
+  const [, navigate] = useLocation();
 
   // Responsive
   const isTouch = useIsTouch();
@@ -221,6 +228,54 @@ export default function EditorPage() {
     toast.success(`已添加 ${template.name}`);
   }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
 
+  // ===== Add custom split window =====
+  const handleAddCustomSplit = useCallback((config: SplitConfig) => {
+    const pos = findNonOverlappingPosition(config.totalWidth, config.totalHeight);
+    pushHistory(getSnapshot());
+    const newWin = createCustomSplitWindow(
+      config.totalWidth,
+      config.totalHeight,
+      config.direction,
+      config.panelSizes,
+      pos.x,
+      pos.y,
+      activeProfileSeries
+    );
+    addWindowUnit(newWin);
+    toast.success(`已添加 ${config.panelCount}等分窗`);
+  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
+
+  // ===== Sketch Recognition: 手绘草图识别生成窗户 =====
+  const handleSketchGenerate = useCallback((result: SketchRecognitionResult) => {
+    pushHistory(getSnapshot());
+    // 根据识别结果创建窗户
+    if (result.splitConfig) {
+      const config = result.splitConfig;
+      const pos = findNonOverlappingPosition(config.totalWidth, config.totalHeight);
+      const newWin = createCustomSplitWindow(
+        config.totalWidth,
+        config.totalHeight,
+        config.direction,
+        config.panelSizes,
+        pos.x,
+        pos.y,
+        activeProfileSeries
+      );
+      newWin.name = result.name || newWin.name;
+      addWindowUnit(newWin);
+      toast.success(`手绘识别成功：已生成 ${result.name || '窗户'}`);
+    } else {
+      // 简单窗户
+      const pos = findNonOverlappingPosition(result.width, result.height);
+      const tpl = WINDOW_TEMPLATES[0]; // 固定窗模板
+      const newWin = tpl.create(result.width, result.height, pos.x, pos.y, activeProfileSeries);
+      newWin.name = result.name || newWin.name;
+      addWindowUnit(newWin);
+      toast.success(`手绘识别成功：已生成 ${result.name || '固定窗'}`);
+    }
+    setSketchOpen(false);
+  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
+
   // ===== Update window with history =====
   const handleUpdateWindowWithHistory = useCallback((id: string, updates: Partial<WindowUnit>) => {
     pushHistory(getSnapshot());
@@ -343,6 +398,8 @@ export default function EditorPage() {
           onOpenBOM={() => setBomOpen(true)}
           onOpenExport={() => setExportOpen(true)}
           onOpenVersions={() => setVersionOpen(true)}
+          onOpenSketch={() => setSketchOpen(true)}
+          onOpenShowcase={() => navigate('/showcase')}
         />
       )}
 
@@ -473,6 +530,7 @@ export default function EditorPage() {
             onProfileSeriesChange={setActiveProfileSeries}
             onSashTypeChange={setActiveSashType}
             onAddTemplate={handleAddTemplate}
+            onAddCustomSplit={handleAddCustomSplit}
           />
         )}
       </div>
@@ -525,6 +583,7 @@ export default function EditorPage() {
           onProfileSeriesChange={setActiveProfileSeries}
           onSashTypeChange={setActiveSashType}
           onAddTemplate={handleAddTemplate}
+          onAddCustomSplit={handleAddCustomSplit}
         />
       )}
 
@@ -555,6 +614,14 @@ export default function EditorPage() {
           currentWindows={windows}
           onRestore={handleVersionRestore}
           onClose={() => setVersionOpen(false)}
+        />
+      )}
+
+      {/* 手绘草图识别 */}
+      {sketchOpen && (
+        <SketchPad
+          onGenerate={handleSketchGenerate}
+          onClose={() => setSketchOpen(false)}
         />
       )}
 

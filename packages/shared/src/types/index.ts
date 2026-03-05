@@ -14,6 +14,8 @@ export type {
   ProfileSeries,
   WindowTemplate,
   DesignData,
+  ColorConfig,
+  MaterialConfig,
 } from './design';
 
 export type {

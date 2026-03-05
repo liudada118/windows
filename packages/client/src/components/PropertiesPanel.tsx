@@ -7,7 +7,10 @@ import type { WindowUnit, ProfileSeries, SashType, Opening, Mullion } from '@/li
 import { DEFAULT_PROFILE_SERIES, CONSTRAINTS } from '@/lib/types';
 import { WINDOW_TEMPLATES } from '@/lib/window-factory';
 import { resizeWindowUnit, updateMullionInOpenings } from '@/lib/window-factory';
-import { ChevronDown, ChevronRight, Package, Layers, Settings2, Ruler, Move, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Package, Layers, Settings2, Ruler, Move, Pencil, Grid3X3 } from 'lucide-react';
+import MaterialPanel from './MaterialPanel';
+import CustomSplitDialog from './CustomSplitDialog';
+import type { SplitConfig } from './CustomSplitDialog';
 
 interface PropertiesPanelProps {
   selectedWindow: WindowUnit | null;
@@ -19,6 +22,7 @@ interface PropertiesPanelProps {
   onProfileSeriesChange: (series: ProfileSeries) => void;
   onSashTypeChange: (type: SashType) => void;
   onAddTemplate: (templateId: string) => void;
+  onAddCustomSplit?: (config: SplitConfig) => void;
 }
 
 const SASH_TYPES: { id: SashType; name: string; icon: string }[] = [
@@ -178,6 +182,7 @@ export default function PropertiesPanel({
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [mullionOpen, setMullionOpen] = useState(true);
   const [sizesOpen, setSizesOpen] = useState(true);
+  const [customSplitOpen, setCustomSplitOpen] = useState(false);
 
   // BUG-001 修复: 使用本地 state 缓存输入值，只在 blur 或 Enter 时提交
   const [localWidth, setLocalWidth] = useState('');
@@ -390,6 +395,9 @@ export default function PropertiesPanel({
 
   return (
     <div className="w-64 bg-[oklch(0.17_0.028_260)] border-l border-[oklch(0.28_0.035_260)] flex flex-col overflow-y-auto">
+      {/* Material & Color Section */}
+      <MaterialPanel />
+
       {/* Templates Section */}
       <SectionHeader
         title="预设窗型"
@@ -410,6 +418,14 @@ export default function PropertiesPanel({
                 <span className="text-[10px] text-slate-400 group-hover:text-slate-200">{tmpl.name}</span>
               </button>
             ))}
+            {/* 自定义等分 */}
+            <button
+              onClick={() => setCustomSplitOpen(true)}
+              className="flex flex-col items-center gap-1 p-2 rounded bg-[oklch(0.20_0.035_260)] hover:bg-[oklch(0.25_0.04_260)] border border-dashed border-amber-500/30 hover:border-amber-500/60 transition-all group"
+            >
+              <Grid3X3 size={20} className="text-amber-400/60 group-hover:text-amber-400 transition-colors" />
+              <span className="text-[10px] text-amber-400/60 group-hover:text-amber-300">自定义等分</span>
+            </button>
           </div>
         </div>
       )}
@@ -697,6 +713,18 @@ export default function PropertiesPanel({
           )}
         </>
       )}
+
+      {/* 自定义等分对话框 */}
+      <CustomSplitDialog
+        isOpen={customSplitOpen}
+        onClose={() => setCustomSplitOpen(false)}
+        onConfirm={(config) => {
+          if (onAddCustomSplit) {
+            onAddCustomSplit(config);
+          }
+          setCustomSplitOpen(false);
+        }}
+      />
     </div>
   );
 }

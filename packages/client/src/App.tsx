@@ -5,6 +5,7 @@ import { Route, Switch, Router as WouterRouter } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import EditorPage from "./pages/EditorPage";
+import ShowcasePage from "./pages/ShowcasePage";
 
 function Router() {
   // 使用环境变量中的base路径，支持子路径部署
@@ -13,6 +14,7 @@ function Router() {
     <WouterRouter base={base}>
       <Switch>
         <Route path={"/"} component={EditorPage} />
+        <Route path={"/showcase"} component={ShowcasePage} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

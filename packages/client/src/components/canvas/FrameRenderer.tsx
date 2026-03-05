@@ -1,10 +1,12 @@
 // WindoorDesigner - L1 外框渲染组件
 // 渲染窗户外框型材（矩形 + 45° 斜线填充）
+// 支持动态颜色配置
 
 import { Group, Rect, Line } from 'react-konva';
 import { useMemo } from 'react';
 import type { Frame } from '@windoor/shared';
 import { COLORS } from '@/lib/constants';
+import { useDesignStore } from '@/stores/designStore';
 
 interface FrameRendererProps {
   frame: Frame;
@@ -24,6 +26,9 @@ export default function FrameRenderer({
   isSelected,
   zoom,
 }: FrameRendererProps) {
+  const materialConfig = useDesignStore((s) => s.designData.materialConfig);
+  const frameColor = materialConfig?.colors?.frameColor || '#4A4A4A';
+
   const scale = MM_TO_PX * zoom;
   const pw = frame.profileWidth * scale;
   const w = windowWidth * scale;
@@ -54,6 +59,11 @@ export default function FrameRenderer({
     return lines;
   }, [w, h, pw, zoom]);
 
+  // 根据框色计算填充色和描边色
+  const frameFill = frameColor;
+  const frameStroke = isSelected ? COLORS.selected : adjustBrightness(frameColor, -30);
+  const hatchStroke = adjustBrightness(frameColor, -15) + '18';
+
   return (
     <Group>
       {/* 外框背景填充 */}
@@ -62,7 +72,7 @@ export default function FrameRenderer({
         y={0}
         width={w}
         height={h}
-        fill={COLORS.frameFill}
+        fill={frameFill}
         shadowColor={isSelected ? COLORS.selectedGlow : 'rgba(0,0,0,0.15)'}
         shadowBlur={isSelected ? 16 : 8}
         shadowOffsetY={2}
@@ -82,7 +92,7 @@ export default function FrameRenderer({
         <Line
           key={i}
           points={points}
-          stroke={COLORS.frameHatch}
+          stroke={hatchStroke}
           strokeWidth={0.6}
           listening={false}
         />
@@ -94,7 +104,7 @@ export default function FrameRenderer({
         y={0}
         width={w}
         height={h}
-        stroke={isSelected ? COLORS.selected : COLORS.frameStroke}
+        stroke={frameStroke}
         strokeWidth={isSelected ? 2.5 : 1.5}
         listening={false}
       />
@@ -105,10 +115,19 @@ export default function FrameRenderer({
         y={pw}
         width={w - pw * 2}
         height={h - pw * 2}
-        stroke={isSelected ? COLORS.selected : '#718096'}
+        stroke={isSelected ? COLORS.selected : adjustBrightness(frameColor, -20)}
         strokeWidth={isSelected ? 1.5 : 1}
         listening={false}
       />
     </Group>
   );
+}
+
+/** 调整颜色亮度 */
+function adjustBrightness(hex: string, amount: number): string {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.min(255, ((num >> 16) & 0xFF) + amount));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xFF) + amount));
+  const b = Math.max(0, Math.min(255, (num & 0xFF) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }

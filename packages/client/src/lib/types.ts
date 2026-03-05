@@ -18,6 +18,8 @@ export type {
   ProfileSeries,
   WindowTemplate,
   DesignData,
+  ColorConfig,
+  MaterialConfig,
   ToolType,
   EditorState,
   HistoryEntry,

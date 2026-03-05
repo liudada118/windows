@@ -1,10 +1,12 @@
 // WindoorDesigner - L1 中梃渲染组件
 // 渲染中梃型材矩形 + 45° 斜线填充
+// 支持动态颜色配置
 
 import { Group, Rect, Line } from 'react-konva';
 import { useMemo } from 'react';
 import type { Mullion, Rect as RectType } from '@windoor/shared';
 import { COLORS } from '@/lib/constants';
+import { useDesignStore } from '@/stores/designStore';
 
 interface MullionRendererProps {
   mullion: Mullion;
@@ -16,6 +18,15 @@ interface MullionRendererProps {
 
 const MM_TO_PX = 0.5;
 
+/** 调整颜色亮度 */
+function adjustBrightness(hex: string, amount: number): string {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.min(255, ((num >> 16) & 0xFF) + amount));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xFF) + amount));
+  const b = Math.max(0, Math.min(255, (num & 0xFF) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
 /** 渲染中梃 */
 export default function MullionRenderer({
   mullion,
@@ -24,6 +35,9 @@ export default function MullionRenderer({
   isSelected,
   isDragging,
 }: MullionRendererProps) {
+  const materialConfig = useDesignStore((s) => s.designData.materialConfig);
+  const mullionColor = materialConfig?.colors?.mullionColor || '#555555';
+
   const scale = MM_TO_PX * zoom;
   const halfWidth = (mullion.profileWidth / 2) * scale;
 
@@ -61,7 +75,9 @@ export default function MullionRenderer({
     ? '#FF3B30'
     : isSelected
     ? COLORS.selected
-    : COLORS.mullionStroke;
+    : adjustBrightness(mullionColor, -30);
+
+  const hatchStroke = adjustBrightness(mullionColor, -15) + '18';
 
   return (
     <Group>
@@ -71,7 +87,7 @@ export default function MullionRenderer({
         y={y}
         width={w}
         height={h}
-        fill={COLORS.frameFill}
+        fill={mullionColor}
       />
 
       {/* 斜线填充 */}
@@ -79,7 +95,7 @@ export default function MullionRenderer({
         <Line
           key={i}
           points={points}
-          stroke={COLORS.frameHatch}
+          stroke={hatchStroke}
           strokeWidth={0.6}
           listening={false}
         />
