@@ -381,6 +381,13 @@ export default function EditorPage() {
 
           <div className="flex-1" />
           <button
+            onClick={() => navigate('/photo')}
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-violet-400 active:bg-violet-500/10"
+            title="拍照识别"
+          >
+            <Camera size={18} />
+          </button>
+          <button
             onClick={() => setDrawerOpen(true)}
             className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 active:bg-white/10"
           >
@@ -400,6 +407,7 @@ export default function EditorPage() {
           onOpenVersions={() => setVersionOpen(true)}
           onOpenSketch={() => setSketchOpen(true)}
           onOpenShowcase={() => navigate('/showcase')}
+          onOpenPhoto={() => navigate('/photo')}
         />
       )}
 
