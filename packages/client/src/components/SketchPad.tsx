@@ -1,9 +1,11 @@
 // SketchPad.tsx - 手绘草图画板组件
 // 支持在 Canvas 上手绘窗户草图，然后通过 AI 识别生成窗户模型
+// v2.0: 支持识别转角窗(L形/U形)和凸窗
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { X, Eraser, Undo2, Trash2, Wand2, Loader2, Pen, Download } from 'lucide-react';
 import type { SplitConfig } from '@/components/CustomSplitDialog';
+import type { CompositeWindowType } from '@/lib/types';
 
 interface SketchPadProps {
   onClose: () => void;
@@ -16,6 +18,14 @@ export interface SketchRecognitionResult {
   height: number;
   splitConfig?: SplitConfig;
   description: string;
+  // 组合窗识别结果
+  compositeType?: CompositeWindowType;
+  compositePanels?: {
+    width: number;
+    height: number;
+    angle: number;
+    label: string;
+  }[];
 }
 
 type Tool = 'pen' | 'eraser';
@@ -193,7 +203,7 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-[oklch(0.25_0.035_260)]">
           <div>
             <h2 className="text-base font-semibold text-slate-100">手绘草图识别</h2>
-            <p className="text-xs text-slate-400 mt-0.5">在画板上绘制窗户草图，AI 将自动识别并生成效果图</p>
+            <p className="text-xs text-slate-400 mt-0.5">在画板上绘制窗户草图，AI 将自动识别并生成效果图（支持普通窗、转角窗、凸窗）</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
             <X size={18} />
@@ -273,8 +283,10 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
           <div className="p-2.5 rounded-lg bg-[oklch(0.12_0.02_260)] border border-[oklch(0.22_0.03_260)]">
             <p className="text-[11px] text-slate-400 leading-relaxed">
               <strong className="text-amber-400/80">绘制提示：</strong>
-              画一个矩形作为窗框，用竖线或横线表示中梃分割。例如：画一个矩形中间加一条竖线表示两等分窗。
-              系统会自动分析线条位置来识别窗户结构。
+              <strong>普通窗：</strong>画一个矩形，用竖线/横线表示分割。
+              <strong>L形转角窗：</strong>画一个 L 形（两个矩形拼成直角）。
+              <strong>U形转角窗：</strong>画一个 U 形（三个矩形拼成凹字）。
+              <strong>凸窗/飘窗：</strong>画一个梯形或五边形（上宽下窄或带斜边）。
             </p>
           </div>
         </div>
@@ -286,8 +298,17 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
               <p className="text-xs text-emerald-300 font-medium mb-1">识别结果</p>
               <p className="text-[11px] text-slate-300">{recognitionResult.description}</p>
               <p className="text-[11px] text-slate-400 mt-1">
-                尺寸: {recognitionResult.width} x {recognitionResult.height}mm
-                {recognitionResult.splitConfig && ` | ${recognitionResult.splitConfig.panelCount}等分 (${recognitionResult.splitConfig.direction === 'vertical' ? '竖向' : '横向'})`}
+                {recognitionResult.compositeType ? (
+                  <>
+                    类型: {recognitionResult.name}
+                    {recognitionResult.compositePanels && ` | ${recognitionResult.compositePanels.length}个面板`}
+                  </>
+                ) : (
+                  <>
+                    尺寸: {recognitionResult.width} x {recognitionResult.height}mm
+                    {recognitionResult.splitConfig && ` | ${recognitionResult.splitConfig.panelCount}等分 (${recognitionResult.splitConfig.direction === 'vertical' ? '竖向' : '横向'})`}
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -336,8 +357,24 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
   );
 }
 
-// ===== Local sketch recognition =====
-// Analyzes the canvas pixel data to detect lines and rectangles
+// ===== Shape detection types =====
+interface BoundingBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+}
+
+interface ConnectedRegion {
+  pixels: Set<string>;
+  bbox: BoundingBox;
+  area: number;
+}
+
+// ===== Local sketch recognition (enhanced v2) =====
+// Analyzes the canvas pixel data to detect shapes including L-shape, U-shape, bay window
 function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionResult {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No canvas context');
@@ -346,25 +383,26 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
   const { width, height, data } = imageData;
 
   // Find dark pixels (drawn lines)
-  const isDark = (x: number, y: number) => {
+  const isDark = (x: number, y: number): boolean => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return false;
     const i = (y * width + x) * 4;
     return data[i] < 100 && data[i + 1] < 100 && data[i + 2] < 100;
   };
 
-  // Find bounding box of drawing
-  let minX = width, minY = height, maxX = 0, maxY = 0;
+  // Find bounding box of all drawing
+  let globalMinX = width, globalMinY = height, globalMaxX = 0, globalMaxY = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (isDark(x, y)) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+        globalMinX = Math.min(globalMinX, x);
+        globalMinY = Math.min(globalMinY, y);
+        globalMaxX = Math.max(globalMaxX, x);
+        globalMaxY = Math.max(globalMaxY, y);
       }
     }
   }
 
-  if (maxX <= minX || maxY <= minY) {
+  if (globalMaxX <= globalMinX || globalMaxY <= globalMinY) {
     return {
       name: '固定窗',
       width: 1200,
@@ -373,9 +411,293 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
     };
   }
 
-  const drawWidth = maxX - minX;
-  const drawHeight = maxY - minY;
+  const drawWidth = globalMaxX - globalMinX;
+  const drawHeight = globalMaxY - globalMinY;
 
+  // ===== Step 1: Analyze shape by scanning fill density in quadrants =====
+  // Divide the bounding box into a grid and check which cells have drawing content
+  const gridCols = 6;
+  const gridRows = 6;
+  const cellW = drawWidth / gridCols;
+  const cellH = drawHeight / gridRows;
+  const densityGrid: number[][] = [];
+
+  for (let row = 0; row < gridRows; row++) {
+    densityGrid[row] = [];
+    for (let col = 0; col < gridCols; col++) {
+      const cellX1 = Math.round(globalMinX + col * cellW);
+      const cellY1 = Math.round(globalMinY + row * cellH);
+      const cellX2 = Math.round(cellX1 + cellW);
+      const cellY2 = Math.round(cellY1 + cellH);
+
+      let darkCount = 0;
+      let totalCount = 0;
+      for (let py = cellY1; py < cellY2; py += 2) {
+        for (let px = cellX1; px < cellX2; px += 2) {
+          totalCount++;
+          if (isDark(px, py)) darkCount++;
+        }
+      }
+      densityGrid[row][col] = totalCount > 0 ? darkCount / totalCount : 0;
+    }
+  }
+
+  // Check if a cell has significant content (density > threshold)
+  const DENSITY_THRESHOLD = 0.02;
+  const hasContent = (row: number, col: number): boolean => {
+    if (row < 0 || row >= gridRows || col < 0 || col >= gridCols) return false;
+    return densityGrid[row][col] > DENSITY_THRESHOLD;
+  };
+
+  // ===== Step 2: Detect shape type =====
+  // Analyze the overall shape pattern
+
+  // Check for L-shape: content in bottom-left + top-right OR bottom-right + top-left
+  // Check for U-shape: content on left, bottom, right but NOT top-center
+  // Check for bay/trapezoid: wider at top/bottom with angled sides
+
+  // Compute row/column fill profiles
+  const rowFill: number[] = [];
+  for (let row = 0; row < gridRows; row++) {
+    let filledCols = 0;
+    for (let col = 0; col < gridCols; col++) {
+      if (hasContent(row, col)) filledCols++;
+    }
+    rowFill.push(filledCols);
+  }
+
+  const colFill: number[] = [];
+  for (let col = 0; col < gridCols; col++) {
+    let filledRows = 0;
+    for (let row = 0; row < gridRows; row++) {
+      if (hasContent(row, col)) filledRows++;
+    }
+    colFill.push(filledRows);
+  }
+
+  // Detect shape characteristics
+  const topHalf = rowFill.slice(0, gridRows / 2);
+  const bottomHalf = rowFill.slice(gridRows / 2);
+  const leftHalf = colFill.slice(0, gridCols / 2);
+  const rightHalf = colFill.slice(gridCols / 2);
+
+  const avgTopFill = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
+  const avgBottomFill = bottomHalf.reduce((a, b) => a + b, 0) / bottomHalf.length;
+  const avgLeftFill = leftHalf.reduce((a, b) => a + b, 0) / leftHalf.length;
+  const avgRightFill = rightHalf.reduce((a, b) => a + b, 0) / rightHalf.length;
+
+  // Check for empty quadrants (characteristic of L/U shapes)
+  const quadrants = {
+    topLeft: 0,
+    topRight: 0,
+    bottomLeft: 0,
+    bottomRight: 0,
+  };
+
+  const halfRow = Math.floor(gridRows / 2);
+  const halfCol = Math.floor(gridCols / 2);
+
+  for (let row = 0; row < halfRow; row++) {
+    for (let col = 0; col < halfCol; col++) {
+      if (hasContent(row, col)) quadrants.topLeft++;
+    }
+  }
+  for (let row = 0; row < halfRow; row++) {
+    for (let col = halfCol; col < gridCols; col++) {
+      if (hasContent(row, col)) quadrants.topRight++;
+    }
+  }
+  for (let row = halfRow; row < gridRows; row++) {
+    for (let col = 0; col < halfCol; col++) {
+      if (hasContent(row, col)) quadrants.bottomLeft++;
+    }
+  }
+  for (let row = halfRow; row < gridRows; row++) {
+    for (let col = halfCol; col < gridCols; col++) {
+      if (hasContent(row, col)) quadrants.bottomRight++;
+    }
+  }
+
+  const maxQuadrant = Math.max(quadrants.topLeft, quadrants.topRight, quadrants.bottomLeft, quadrants.bottomRight);
+  const quadrantThreshold = maxQuadrant * 0.3;
+
+  const qTL = quadrants.topLeft > quadrantThreshold;
+  const qTR = quadrants.topRight > quadrantThreshold;
+  const qBL = quadrants.bottomLeft > quadrantThreshold;
+  const qBR = quadrants.bottomRight > quadrantThreshold;
+
+  const filledQuadrants = [qTL, qTR, qBL, qBR].filter(Boolean).length;
+
+  // ===== Step 3: Classify shape =====
+
+  // Bay window / trapezoid detection: check for diagonal lines
+  const hasDiagonalLines = detectDiagonalLines(
+    isDark, globalMinX, globalMinY, globalMaxX, globalMaxY, drawWidth, drawHeight
+  );
+
+  if (hasDiagonalLines) {
+    // Bay window (凸窗/飘窗)
+    const frontWidth = Math.round(Math.max(800, Math.min(2400, drawWidth * 2.5)));
+    const sideWidth = Math.round(frontWidth * 0.35);
+    const winHeight = Math.round(Math.max(800, Math.min(2000, drawHeight * 2.5)));
+
+    return {
+      name: '凸窗/飘窗',
+      width: frontWidth,
+      height: winHeight,
+      compositeType: 'bay-window',
+      compositePanels: [
+        { width: sideWidth, height: winHeight, angle: -45, label: '左斜面' },
+        { width: frontWidth, height: winHeight, angle: 0, label: '正面' },
+        { width: sideWidth, height: winHeight, angle: 45, label: '右斜面' },
+      ],
+      description: `识别为凸窗/飘窗 (正面 ${frontWidth}mm, 斜面 ${sideWidth}mm, 高 ${winHeight}mm)`,
+    };
+  }
+
+  // U-shape: 3 quadrants filled, one row (top or bottom) mostly empty
+  if (filledQuadrants >= 3) {
+    // Check if top center is empty (U-shape opening upward)
+    const topCenterEmpty = !qTL && qBL && qBR && qTR
+      || qTL && qBL && qBR && qTR; // all filled = rectangle
+
+    // More precise U-shape check: bottom row is wide, top row has gap in middle
+    const bottomRowWide = avgBottomFill > gridCols * 0.6;
+    const topRowNarrow = avgTopFill < avgBottomFill * 0.7;
+    const leftColTall = avgLeftFill > gridRows * 0.5;
+    const rightColTall = avgRightFill > gridRows * 0.5;
+
+    if (bottomRowWide && leftColTall && rightColTall && topRowNarrow) {
+      // U-shape window
+      const frontWidth = Math.round(Math.max(1000, Math.min(2500, drawWidth * 2)));
+      const sideWidth = Math.round(frontWidth * 0.45);
+      const winHeight = Math.round(Math.max(800, Math.min(2000, drawHeight * 2)));
+
+      return {
+        name: 'U形窗',
+        width: frontWidth,
+        height: winHeight,
+        compositeType: 'u-shape',
+        compositePanels: [
+          { width: sideWidth, height: winHeight, angle: -90, label: '左侧面' },
+          { width: frontWidth, height: winHeight, angle: 0, label: '正面' },
+          { width: sideWidth, height: winHeight, angle: 90, label: '右侧面' },
+        ],
+        description: `识别为U形转角窗 (正面 ${frontWidth}mm, 侧面 ${sideWidth}mm, 高 ${winHeight}mm)`,
+      };
+    }
+  }
+
+  // L-shape: exactly 3 quadrants filled (one corner empty)
+  if (filledQuadrants === 3 || (filledQuadrants === 4 && isLShape(densityGrid, gridRows, gridCols, DENSITY_THRESHOLD))) {
+    // Determine which corner is empty to decide L orientation
+    const emptyCorner = !qTL ? 'topLeft' : !qTR ? 'topRight' : !qBL ? 'bottomLeft' : !qBR ? 'bottomRight' : null;
+
+    if (emptyCorner) {
+      const frontWidth = Math.round(Math.max(800, Math.min(2200, drawWidth * 2)));
+      const sideWidth = Math.round(Math.max(600, Math.min(1500, drawHeight * 1.5)));
+      const winHeight = Math.round(Math.max(800, Math.min(2000, Math.max(drawWidth, drawHeight) * 2)));
+
+      return {
+        name: 'L形窗',
+        width: frontWidth,
+        height: winHeight,
+        compositeType: 'l-shape',
+        compositePanels: [
+          { width: frontWidth, height: winHeight, angle: 0, label: '正面' },
+          { width: sideWidth, height: winHeight, angle: 90, label: '侧面' },
+        ],
+        description: `识别为L形转角窗 (正面 ${frontWidth}mm, 侧面 ${sideWidth}mm, 高 ${winHeight}mm)`,
+      };
+    }
+  }
+
+  // ===== Step 4: Fall back to standard rectangle window detection =====
+  return detectRectangleWindow(isDark, globalMinX, globalMinY, globalMaxX, globalMaxY, drawWidth, drawHeight);
+}
+
+// ===== Detect diagonal lines (for bay window) =====
+function detectDiagonalLines(
+  isDark: (x: number, y: number) => boolean,
+  minX: number, minY: number, maxX: number, maxY: number,
+  drawWidth: number, drawHeight: number
+): boolean {
+  // Check for lines at roughly 45-degree angles in the left and right portions
+  const sampleSize = Math.min(drawWidth, drawHeight);
+  const checkRadius = sampleSize * 0.3;
+
+  // Check left side for diagonal (top-left to bottom-center-left)
+  let leftDiagCount = 0;
+  let rightDiagCount = 0;
+  const steps = 30;
+
+  for (let i = 0; i < steps; i++) {
+    const t = i / steps;
+
+    // Left diagonal: from top-left area going down-right
+    const lx = Math.round(minX + drawWidth * 0.1 + t * drawWidth * 0.2);
+    const ly = Math.round(minY + t * drawHeight);
+    // Check a small area around the expected diagonal line
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -3; dy <= 3; dy++) {
+        if (isDark(lx + dx, ly + dy)) {
+          leftDiagCount++;
+          break;
+        }
+      }
+    }
+
+    // Right diagonal: from top-right area going down-left
+    const rx = Math.round(maxX - drawWidth * 0.1 - t * drawWidth * 0.2);
+    const ry = Math.round(minY + t * drawHeight);
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -3; dy <= 3; dy++) {
+        if (isDark(rx + dx, ry + dy)) {
+          rightDiagCount++;
+          break;
+        }
+      }
+    }
+  }
+
+  // If both sides have significant diagonal content, it's likely a trapezoid/bay
+  const diagThreshold = steps * 0.35;
+  return leftDiagCount > diagThreshold && rightDiagCount > diagThreshold;
+}
+
+// ===== Check if shape is L-shaped even with 4 quadrants partially filled =====
+function isLShape(
+  densityGrid: number[][],
+  gridRows: number,
+  gridCols: number,
+  threshold: number
+): boolean {
+  // An L-shape has one quadrant with significantly less content
+  const halfRow = Math.floor(gridRows / 2);
+  const halfCol = Math.floor(gridCols / 2);
+
+  const quadrantDensities = [0, 0, 0, 0]; // TL, TR, BL, BR
+
+  for (let row = 0; row < gridRows; row++) {
+    for (let col = 0; col < gridCols; col++) {
+      const qi = (row < halfRow ? 0 : 2) + (col < halfCol ? 0 : 1);
+      quadrantDensities[qi] += densityGrid[row][col];
+    }
+  }
+
+  const maxDensity = Math.max(...quadrantDensities);
+  const minDensity = Math.min(...quadrantDensities);
+
+  // If the weakest quadrant is less than 30% of the strongest, it's L-shaped
+  return minDensity < maxDensity * 0.25;
+}
+
+// ===== Standard rectangle window detection (original logic) =====
+function detectRectangleWindow(
+  isDark: (x: number, y: number) => boolean,
+  minX: number, minY: number, maxX: number, maxY: number,
+  drawWidth: number, drawHeight: number
+): SketchRecognitionResult {
   // Detect vertical dividing lines (mullions)
   const verticalLines: number[] = [];
   const margin = drawWidth * 0.1;
@@ -464,6 +786,7 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
       totalWidth: winWidth,
       totalHeight: winHeight,
       panelSizes,
+      equalSplit: false,
     },
     description: `识别为${panelCount}等分窗 (${directionLabel}分割, ${winWidth}x${winHeight}mm, 各格: ${panelSizes.join('/')}mm)`,
   };
