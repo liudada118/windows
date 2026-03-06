@@ -21,6 +21,7 @@ import {
   deleteSashFromOpening,
   createCustomSplitWindow,
 } from '@/lib/window-factory';
+import { COMPOSITE_TEMPLATES } from '@/lib/composite-factory';
 import type { SplitConfig } from '@/components/CustomSplitDialog';
 import type { WindowUnit } from '@/lib/types';
 import { toast } from 'sonner';
@@ -61,6 +62,11 @@ export default function EditorPage() {
   const getSnapshot = useDesignStore((s) => s.getSnapshot);
   const restoreSnapshot = useDesignStore((s) => s.restoreSnapshot);
   const loadDesign = useDesignStore((s) => s.loadDesign);
+  const addCompositeWindow = useDesignStore((s) => s.addCompositeWindow);
+  const deleteCompositeWindow = useDesignStore((s) => s.deleteCompositeWindow);
+  const selectedCompositeWindowId = useDesignStore((s) => s.selectedCompositeWindowId);
+  const getSelectedCompositeWindow = useDesignStore((s) => s.getSelectedCompositeWindow);
+  const compositeWindows = useDesignStore((s) => s.designData.compositeWindows);
 
   const activeTool = useCanvasStore((s) => s.activeTool);
   const zoom = useCanvasStore((s) => s.zoom);
@@ -104,6 +110,7 @@ export default function EditorPage() {
   const canUndo = canUndoFn();
   const canRedo = canRedoFn();
   const selectedWindow = windows.find((w) => w.id === selectedWindowId) || null;
+  const selectedCompositeWindow = getSelectedCompositeWindow();
 
   // ===== Auto-save & Keyboard shortcuts =====
   useAutoSave();
@@ -244,6 +251,26 @@ export default function EditorPage() {
     addWindowUnit(newWin);
     toast.success(`已添加 ${config.panelCount}等分窗`);
   }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
+
+  // ===== Add composite window =====
+  const handleAddComposite = useCallback((templateId: string) => {
+    const template = COMPOSITE_TEMPLATES.find((t) => t.id === templateId);
+    if (!template) return;
+
+    const pos = findNonOverlappingPosition(2000, 1500);
+    pushHistory(getSnapshot());
+    const newCW = template.create(pos.x, pos.y, activeProfileSeries);
+    addCompositeWindow(newCW);
+    toast.success(`已添加 ${template.name}`);
+  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addCompositeWindow]);
+
+  // ===== Delete composite window =====
+  const handleDeleteCompositeWindow = useCallback(() => {
+    if (!selectedCompositeWindowId) return;
+    pushHistory(getSnapshot());
+    deleteCompositeWindow(selectedCompositeWindowId);
+    toast.info('已删除组合窗');
+  }, [selectedCompositeWindowId, pushHistory, getSnapshot, deleteCompositeWindow]);
 
   // ===== Sketch Recognition: 手绘草图识别生成窗户 =====
   const handleSketchGenerate = useCallback((result: SketchRecognitionResult) => {
@@ -531,6 +558,9 @@ export default function EditorPage() {
             onSashTypeChange={setActiveSashType}
             onAddTemplate={handleAddTemplate}
             onAddCustomSplit={handleAddCustomSplit}
+            onAddComposite={handleAddComposite}
+            selectedCompositeWindow={selectedCompositeWindow}
+            onDeleteCompositeWindow={handleDeleteCompositeWindow}
           />
         )}
       </div>

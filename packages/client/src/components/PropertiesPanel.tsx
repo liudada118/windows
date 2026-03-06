@@ -11,6 +11,8 @@ import { ChevronDown, ChevronRight, Package, Layers, Settings2, Ruler, Move, Pen
 import MaterialPanel from './MaterialPanel';
 import CustomSplitDialog from './CustomSplitDialog';
 import type { SplitConfig } from './CustomSplitDialog';
+import { CompositeTemplateSection, CompositePropertiesPanel } from './CompositeWindowPanel';
+import type { CompositeWindow } from '@/lib/types';
 
 interface PropertiesPanelProps {
   selectedWindow: WindowUnit | null;
@@ -23,6 +25,9 @@ interface PropertiesPanelProps {
   onSashTypeChange: (type: SashType) => void;
   onAddTemplate: (templateId: string) => void;
   onAddCustomSplit?: (config: SplitConfig) => void;
+  onAddComposite?: (templateId: string) => void;
+  selectedCompositeWindow?: CompositeWindow | null;
+  onDeleteCompositeWindow?: () => void;
 }
 
 const SASH_TYPES: { id: SashType; name: string; icon: string }[] = [
@@ -176,6 +181,9 @@ export default function PropertiesPanel({
   onProfileSeriesChange,
   onSashTypeChange,
   onAddTemplate,
+  onAddComposite,
+  selectedCompositeWindow,
+  onDeleteCompositeWindow,
 }: PropertiesPanelProps) {
   const [templatesOpen, setTemplatesOpen] = useState(true);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
@@ -431,6 +439,22 @@ export default function PropertiesPanel({
       )}
 
       <div className="h-px bg-[oklch(0.28_0.035_260)]" />
+
+      {/* Composite Window Templates */}
+      {onAddComposite && (
+        <CompositeTemplateSection onAddComposite={onAddComposite} />
+      )}
+
+      {/* Composite Window Properties (when selected) */}
+      {selectedCompositeWindow && onDeleteCompositeWindow && (
+        <>
+          <CompositePropertiesPanel
+            compositeWindow={selectedCompositeWindow}
+            onDelete={onDeleteCompositeWindow}
+          />
+          <div className="h-px bg-[oklch(0.28_0.035_260)]" />
+        </>
+      )}
 
       {/* Sash Type Selection */}
       <SectionHeader

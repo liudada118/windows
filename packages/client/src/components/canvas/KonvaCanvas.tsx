@@ -65,6 +65,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const getSnapshot = useDesignStore((s) => s.getSnapshot);
   const selectedCompositeWindowId = useDesignStore((s) => s.selectedCompositeWindowId);
   const selectCompositeWindow = useDesignStore((s) => s.selectCompositeWindow);
+  const updateCompositeWindowPosition = useDesignStore((s) => s.updateCompositeWindowPosition);
 
   // Canvas Store
   const activeTool = useCanvasStore((s) => s.activeTool);
@@ -103,6 +104,9 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     type: 'vertical' | 'horizontal';
   } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
+  const [isDraggingComposite, setIsDraggingComposite] = useState(false);
+  const [draggingCompositeId, setDraggingCompositeId] = useState<string | null>(null);
+  const [compositeDragOffset, setCompositeDragOffset] = useState({ x: 0, y: 0 });
 
   // 本地交互状态 - 触摸
   const [isTouchPinching, setIsTouchPinching] = useState(false);
@@ -144,6 +148,36 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
       return null;
     },
     [designData.windows, screenToWorld]
+  );
+
+  /** 查找屏幕坐标下的组合窗 */
+  const findCompositeWindowAtScreen = useCallback(
+    (sx: number, sy: number) => {
+      const world = screenToWorld(sx, sy);
+      const compositeWindows = designData.compositeWindows || [];
+      for (let i = compositeWindows.length - 1; i >= 0; i--) {
+        const cw = compositeWindows[i];
+        // 计算组合窗的总包围盒
+        let totalWidth = 0;
+        let maxHeight = 0;
+        const GAP = 30;
+        cw.panels.forEach((panel, idx) => {
+          totalWidth += panel.windowUnit.width;
+          if (idx < cw.panels.length - 1) totalWidth += GAP;
+          maxHeight = Math.max(maxHeight, panel.windowUnit.height);
+        });
+        if (
+          world.x >= cw.posX - 50 &&
+          world.x <= cw.posX + totalWidth + 50 &&
+          world.y >= cw.posY - 50 &&
+          world.y <= cw.posY + maxHeight + 50
+        ) {
+          return cw;
+        }
+      }
+      return null;
+    },
+    [designData.compositeWindows, screenToWorld]
   );
 
   /** 获取触摸点相对于 Stage 的坐标 */
@@ -203,10 +237,22 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
             }
 
             selectWindow(win.id);
+            selectCompositeWindow(null);
             setIsDraggingWindow(true);
             setDragOffset({ x: world.x - win.posX, y: world.y - win.posY });
           } else {
-            selectWindow(null);
+            // 检查是否点击了组合窗
+            const cw = findCompositeWindowAtScreen(sx, sy);
+            if (cw) {
+              selectCompositeWindow(cw.id);
+              selectWindow(null);
+              setIsDraggingComposite(true);
+              setDraggingCompositeId(cw.id);
+              setCompositeDragOffset({ x: world.x - cw.posX, y: world.y - cw.posY });
+            } else {
+              selectWindow(null);
+              selectCompositeWindow(null);
+            }
           }
           break;
         }
@@ -291,7 +337,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     },
     [
       activeTool, spaceHeld, panX, panY, zoom, screenToWorld, snap,
-      findWindowAtScreen, selectWindow, selectElement, pushHistory,
+      findWindowAtScreen, findCompositeWindowAtScreen, selectWindow, selectCompositeWindow, selectElement, pushHistory,
       getSnapshot, addMullion, setSash, activeSashType, activeProfileSeries,
       setActiveTool, setMullionPreview,
     ]
@@ -331,6 +377,14 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
         const newPosition =
           draggingMullionInfo.type === 'vertical' ? snap(localX) : snap(localY);
         moveMullion(draggingMullionInfo.windowId, draggingMullionInfo.mullionId, newPosition);
+        return;
+      }
+
+      // 拖拽组合窗
+      if (isDraggingComposite && draggingCompositeId) {
+        const newX = snap(world.x - compositeDragOffset.x);
+        const newY = snap(world.y - compositeDragOffset.y);
+        updateCompositeWindowPosition(draggingCompositeId, newX, newY);
         return;
       }
 
@@ -395,8 +449,9 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     [
       isPanning, panStart, isDraggingWindow, isDraggingMullion, isDrawing,
       selectedWindowId, draggingMullionInfo, drawStart, activeTool,
+      isDraggingComposite, draggingCompositeId, compositeDragOffset,
       screenToWorld, snap, findWindowAtScreen, designData.windows,
-      setPan, updateWindowPosition, moveMullion, setDrawPreview,
+      setPan, updateWindowPosition, updateCompositeWindowPosition, moveMullion, setDrawPreview,
       setMullionPreview, setHoveredOpeningId, setMouseWorldPos, dragOffset,
     ]
   );
@@ -423,6 +478,13 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
         return;
       }
 
+      // 结束组合窗拖拽
+      if (isDraggingComposite) {
+        setIsDraggingComposite(false);
+        setDraggingCompositeId(null);
+        return;
+      }
+
       // 结束绘制外框
       if (isDrawing && drawPreview) {
         setIsDrawing(false);
@@ -445,7 +507,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
       setIsDrawing(false);
     },
     [
-      isPanning, isDraggingWindow, isDraggingMullion, isDrawing, drawPreview,
+      isPanning, isDraggingWindow, isDraggingMullion, isDraggingComposite, isDrawing, drawPreview,
       pushHistory, getSnapshot, addWindow, setActiveTool, setDrawPreview,
     ]
   );
