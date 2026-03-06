@@ -1,10 +1,10 @@
 // WindoorDesigner - 拍照识别 3D 框架预览组件
-// v4: 正确的组合窗3D渲染 - L形/U形/凸窗
+// v6: 修正面板拼接算法 - 使用绝对角度 + 链式边缘追踪
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { PhotoRecognitionResult } from '@/lib/photoRecognition';
+import type { PhotoRecognitionResult, RecognizedPanel } from '@/lib/photoRecognition';
 import { RotateCcw, Maximize2, Eye, Grid3x3, Box } from 'lucide-react';
 
 interface PhotoFramePreviewProps {
@@ -24,9 +24,8 @@ const _glassMat = () => new THREE.MeshStandardMaterial({
 });
 const _cornerMat = () => new THREE.MeshStandardMaterial({ color: 0x909090, metalness: 0.8, roughness: 0.3 });
 
-// ===== 创建面板 =====
+// ===== 创建单个面板 =====
 // 面板居中在原点，宽度沿X，高度沿Y，深度沿Z
-// 面板朝向 +Z 方向（正面朝观察者）
 function makePanel(wMM: number, hMM: number): THREE.Group {
   const g = new THREE.Group();
   const w = wMM * S, h = hMM * S;
@@ -71,167 +70,129 @@ function makePanel(wMM: number, hMM: number): THREE.Group {
   return g;
 }
 
-// ===== 辅助：将面板放置到指定位置和旋转 =====
-// pivot: 面板上的锚点（相对于面板中心的偏移）
-// worldPos: 锚点在世界空间中的目标位置
-// rotY: 绕Y轴的旋转角度
-function placePanel(panel: THREE.Group, pivotOffset: THREE.Vector3, worldPos: THREE.Vector3, rotY: number) {
-  // 创建一个容器，先把面板偏移使pivot在原点，再旋转，再移到目标位置
-  const container = new THREE.Group();
-  panel.position.copy(pivotOffset.clone().negate()); // 面板偏移使pivot在容器原点
-  container.add(panel);
-  container.rotation.y = rotY;
-  container.position.copy(worldPos);
-  return container;
-}
+// ===== 链式边缘追踪算法 =====
+// 
+// 核心思想：
+// - 每个面板的 angle 是绝对角度（相对于正前方Z+方向的法线偏转）
+// - angle=0: 面板沿X轴展开，法线朝Z+（正前方）
+// - angle=90: 面板沿Z轴展开，法线朝X+（右方）
+// - angle=-90: 面板沿Z轴展开，法线朝X-（左方）
+// - angle=45: 面板斜45度，法线朝右前方
+//
+// Three.js 中 rotation.y 是绕Y轴旋转
+// rotY = angle * PI / 180
+// 旋转后面板的"右方向"（局部X+经过Y轴旋转）：
+//   rightDir = (cos(rotY), 0, -sin(rotY))
+//
+// 拼接方式：
+// 1. 基准面板(angle=0)居中放置
+// 2. 向右拼接：从基准右边缘开始，每个面板的左边缘连接到前一个面板的右边缘
+// 3. 向左拼接：从基准左边缘开始，每个面板的右边缘连接到前一个面板的左边缘
 
-// ===== L形窗 =====
-function buildLShape(result: PhotoRecognitionResult): THREE.Group {
+function buildDynamic(result: PhotoRecognitionResult): THREE.Group {
   const root = new THREE.Group();
-  const fp = result.panels[0], sp = result.panels[1];
-  const fw = fp.width * S, sw = sp.width * S, h = fp.height * S;
+  const panels = result.panels;
 
-  // 正面面板：右边缘对齐到转角点 (0, 0, 0)
-  // 面板中心在 (-fw/2, 0, 0)，pivot在面板右边缘 (fw/2, 0, 0)
-  const frontPanel = makePanel(fp.width, fp.height);
-  const frontContainer = placePanel(
-    frontPanel,
-    new THREE.Vector3(fw / 2, 0, 0),  // pivot: 面板右边缘
-    new THREE.Vector3(0, 0, 0),         // 世界位置: 转角点
-    0                                    // 不旋转
-  );
-  root.add(frontContainer);
+  if (panels.length === 0) return root;
 
-  // 侧面面板：左边缘对齐到转角点，旋转90度
-  // pivot在面板左边缘 (-sw/2, 0, 0)
-  const sidePanel = makePanel(sp.width, sp.height);
-  const sideContainer = placePanel(
-    sidePanel,
-    new THREE.Vector3(-sw / 2, 0, 0),  // pivot: 面板左边缘
-    new THREE.Vector3(0, 0, 0),          // 世界位置: 转角点
-    -Math.PI / 2                         // 旋转-90度（向右后方延伸）
-  );
-  root.add(sideContainer);
+  // 单面板 - 直接居中
+  if (panels.length === 1) {
+    root.add(makePanel(panels[0].width, panels[0].height));
+    return root;
+  }
 
-  // 转角立柱
-  const cp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), _cornerMat());
-  cp.position.set(0, 0, 0);
-  cp.castShadow = true;
-  root.add(cp);
+  // 多面板 - 找到基准面板（angle=0 的面板）
+  let baseIdx = panels.findIndex(p => p.angle === 0);
+  if (baseIdx < 0) baseIdx = Math.floor(panels.length / 2); // 取中间
 
-  return root;
-}
+  const leftPanels = panels.slice(0, baseIdx).reverse(); // 从基准向左
+  const rightPanels = panels.slice(baseIdx + 1);          // 从基准向右
+  const basePanel = panels[baseIdx];
 
-// ===== U形窗 =====
-function buildUShape(result: PhotoRecognitionResult): THREE.Group {
-  const root = new THREE.Group();
-  const lp = result.panels[0], fp = result.panels[1], rp = result.panels[2];
-  const fw = fp.width * S, lw = lp.width * S, rw = rp.width * S, h = fp.height * S;
-
-  // 正面面板
-  const frontPanel = makePanel(fp.width, fp.height);
-  frontPanel.position.set(0, 0, 0);
-  root.add(frontPanel);
-
-  // 左侧面板：从正面左边缘向后延伸
-  const leftPanel = makePanel(lp.width, lp.height);
-  const leftContainer = placePanel(
-    leftPanel,
-    new THREE.Vector3(lw / 2, 0, 0),
-    new THREE.Vector3(-fw / 2, 0, 0),
-    Math.PI / 2
-  );
-  root.add(leftContainer);
-
-  // 右侧面板：从正面右边缘向后延伸
-  const rightPanel = makePanel(rp.width, rp.height);
-  const rightContainer = placePanel(
-    rightPanel,
-    new THREE.Vector3(-rw / 2, 0, 0),
-    new THREE.Vector3(fw / 2, 0, 0),
-    -Math.PI / 2
-  );
-  root.add(rightContainer);
-
-  // 转角立柱
+  const h = basePanel.height * S;
   const cmat = _cornerMat();
-  const lcp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
-  lcp.position.set(-fw / 2, 0, 0);
-  lcp.castShadow = true;
-  root.add(lcp);
-  const rcp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
-  rcp.position.set(fw / 2, 0, 0);
-  rcp.castShadow = true;
-  root.add(rcp);
 
-  return root;
-}
+  // 放置基准面板
+  root.add(makePanel(basePanel.width, basePanel.height));
 
-// ===== 凸窗 =====
-function buildBay(result: PhotoRecognitionResult): THREE.Group {
-  const root = new THREE.Group();
-  const lp = result.panels[0], fp = result.panels[1], rp = result.panels[2];
-  const fw = fp.width * S, lw = lp.width * S, rw = rp.width * S, h = fp.height * S;
-  const ang = Math.PI / 4; // 45度（即135度展开角）
+  // === 向右侧拼接面板 ===
+  let jointX = (basePanel.width * S) / 2;
+  let jointZ = 0;
 
-  // 正面面板
-  const frontPanel = makePanel(fp.width, fp.height);
-  frontPanel.position.set(0, 0, 0);
-  root.add(frontPanel);
+  for (let i = 0; i < rightPanels.length; i++) {
+    const sp = rightPanels[i];
+    const rotY = (sp.angle * Math.PI) / 180;
+    const halfW = (sp.width * S) / 2;
 
-  // 左斜面板
-  const leftPanel = makePanel(lp.width, lp.height);
-  const leftContainer = placePanel(
-    leftPanel,
-    new THREE.Vector3(lw / 2, 0, 0),
-    new THREE.Vector3(-fw / 2, 0, 0),
-    ang
-  );
-  root.add(leftContainer);
+    // 面板旋转后的右方向
+    const rdx = Math.cos(rotY);
+    const rdz = -Math.sin(rotY);
 
-  // 右斜面板
-  const rightPanel = makePanel(rp.width, rp.height);
-  const rightContainer = placePanel(
-    rightPanel,
-    new THREE.Vector3(-rw / 2, 0, 0),
-    new THREE.Vector3(fw / 2, 0, 0),
-    -ang
-  );
-  root.add(rightContainer);
+    // 面板中心 = 连接点(左边缘) + 右方向 * halfW
+    const cx = jointX + rdx * halfW;
+    const cz = jointZ + rdz * halfW;
 
-  // 转角立柱
-  const cmat = _cornerMat();
-  const lcp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
-  lcp.position.set(-fw / 2, 0, 0);
-  lcp.castShadow = true;
-  root.add(lcp);
-  const rcp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
-  rcp.position.set(fw / 2, 0, 0);
-  rcp.castShadow = true;
-  root.add(rcp);
+    const panelMesh = makePanel(sp.width, sp.height);
+    const container = new THREE.Group();
+    container.add(panelMesh);
+    container.rotation.y = rotY;
+    container.position.set(cx, 0, cz);
+    root.add(container);
 
-  return root;
-}
+    // 转角立柱
+    const cp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
+    cp.position.set(jointX, 0, jointZ);
+    cp.castShadow = true;
+    root.add(cp);
 
-// ===== 矩形窗 =====
-function buildRect(result: PhotoRecognitionResult): THREE.Group {
-  const root = new THREE.Group();
-  const p = result.panels[0];
-  root.add(makePanel(p.width, p.height));
+    // 更新连接点到面板右边缘
+    jointX = cx + rdx * halfW;
+    jointZ = cz + rdz * halfW;
+  }
+
+  // === 向左侧拼接面板 ===
+  jointX = -(basePanel.width * S) / 2;
+  jointZ = 0;
+
+  for (let i = 0; i < leftPanels.length; i++) {
+    const sp = leftPanels[i];
+    const rotY = (sp.angle * Math.PI) / 180;
+    const halfW = (sp.width * S) / 2;
+
+    // 面板旋转后的右方向
+    const rdx = Math.cos(rotY);
+    const rdz = -Math.sin(rotY);
+
+    // 面板中心 = 连接点(右边缘) - 右方向 * halfW
+    const cx = jointX - rdx * halfW;
+    const cz = jointZ - rdz * halfW;
+
+    const panelMesh = makePanel(sp.width, sp.height);
+    const container = new THREE.Group();
+    container.add(panelMesh);
+    container.rotation.y = rotY;
+    container.position.set(cx, 0, cz);
+    root.add(container);
+
+    // 转角立柱
+    const cp = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), cmat);
+    cp.position.set(jointX, 0, jointZ);
+    cp.castShadow = true;
+    root.add(cp);
+
+    // 更新连接点到面板左边缘
+    jointX = cx - rdx * halfW;
+    jointZ = cz - rdz * halfW;
+  }
+
   return root;
 }
 
 // ===== 分发 =====
 function buildWindowModel(result: PhotoRecognitionResult): THREE.Group {
-  let model: THREE.Group;
-  switch (result.windowType) {
-    case 'l-shape': model = buildLShape(result); break;
-    case 'u-shape': model = buildUShape(result); break;
-    case 'bay-window': model = buildBay(result); break;
-    default: model = buildRect(result); break;
-  }
+  const model = buildDynamic(result);
 
-  // 用 wrapper 居中，不修改子对象的 position
+  // 用 wrapper 居中
   const wrapper = new THREE.Group();
   wrapper.add(model);
   const box = new THREE.Box3().setFromObject(model);
@@ -260,6 +221,7 @@ function makeLabel(text: string, pos: THREE.Vector3): THREE.Sprite {
   return sp;
 }
 
+// 通用标注引擎 - 使用与 buildDynamic 相同的链式边缘追踪算法
 function buildAnnotations(result: PhotoRecognitionResult): THREE.Group {
   const g = new THREE.Group();
   const lm = new THREE.LineBasicMaterial({ color: 0xff6b35, linewidth: 2 });
@@ -274,44 +236,85 @@ function buildAnnotations(result: PhotoRecognitionResult): THREE.Group {
     line(a, b);
   };
 
-  if (result.windowType === 'l-shape' && result.panels.length >= 2) {
-    const fp = result.panels[0], sp = result.panels[1];
-    const fw = fp.width * S, sw = sp.width * S, h = fp.height * S;
+  const panels = result.panels;
+  if (panels.length === 0) return g;
 
-    // 正面宽度（底部，沿X轴，从 -fw 到 0）
-    const by = -h / 2 - 0.1;
-    line(new THREE.Vector3(-fw, by, 0), new THREE.Vector3(0, by, 0));
-    tick(new THREE.Vector3(-fw, by, 0), 'y');
-    tick(new THREE.Vector3(0, by, 0), 'y');
-    g.add(makeLabel(`${fp.width}`, new THREE.Vector3(-fw / 2, by - 0.08, 0)));
+  let baseIdx = panels.findIndex(p => p.angle === 0);
+  if (baseIdx < 0) baseIdx = Math.floor(panels.length / 2);
+  const basePanel = panels[baseIdx];
+  const h = basePanel.height * S;
 
-    // 侧面宽度（底部，沿Z轴，从 0 到 -sw）
-    line(new THREE.Vector3(0.08, by, 0), new THREE.Vector3(0.08, by, -sw));
-    tick(new THREE.Vector3(0.08, by, 0), 'y');
-    tick(new THREE.Vector3(0.08, by, -sw), 'y');
-    g.add(makeLabel(`${sp.width}`, new THREE.Vector3(0.25, by - 0.08, -sw / 2)));
+  // 基准面板宽度标注（底部）
+  const bw = basePanel.width * S;
+  const by = -h / 2 - 0.1;
+  line(new THREE.Vector3(-bw / 2, by, 0), new THREE.Vector3(bw / 2, by, 0));
+  tick(new THREE.Vector3(-bw / 2, by, 0), 'y');
+  tick(new THREE.Vector3(bw / 2, by, 0), 'y');
+  g.add(makeLabel(`${basePanel.width}`, new THREE.Vector3(0, by - 0.08, 0)));
 
-    // 高度
-    const hx = 0.12;
-    line(new THREE.Vector3(hx, -h / 2, 0), new THREE.Vector3(hx, h / 2, 0));
-    tick(new THREE.Vector3(hx, -h / 2, 0), 'x');
-    tick(new THREE.Vector3(hx, h / 2, 0), 'x');
-    g.add(makeLabel(`${fp.height}`, new THREE.Vector3(hx + 0.22, 0, 0)));
+  // 高度标注（右侧）
+  const rightPanels = panels.slice(baseIdx + 1);
+  const hx = (bw / 2) + (rightPanels.length > 0 ? 0.12 : 0.1);
+  line(new THREE.Vector3(hx, -h / 2, 0), new THREE.Vector3(hx, h / 2, 0));
+  tick(new THREE.Vector3(hx, -h / 2, 0), 'x');
+  tick(new THREE.Vector3(hx, h / 2, 0), 'x');
+  g.add(makeLabel(`${basePanel.height}`, new THREE.Vector3(hx + 0.22, 0, 0)));
 
-  } else if (result.panels.length >= 1) {
-    const p = result.panels[0];
-    const w = p.width * S, h = p.height * S;
-    const by = -h / 2 - 0.1;
-    line(new THREE.Vector3(-w / 2, by, 0), new THREE.Vector3(w / 2, by, 0));
-    tick(new THREE.Vector3(-w / 2, by, 0), 'y');
-    tick(new THREE.Vector3(w / 2, by, 0), 'y');
-    g.add(makeLabel(`${p.width}`, new THREE.Vector3(0, by - 0.08, 0)));
+  // 右侧面板标注
+  let jointX = bw / 2;
+  let jointZ = 0;
 
-    const rx = w / 2 + 0.1;
-    line(new THREE.Vector3(rx, -h / 2, 0), new THREE.Vector3(rx, h / 2, 0));
-    tick(new THREE.Vector3(rx, -h / 2, 0), 'x');
-    tick(new THREE.Vector3(rx, h / 2, 0), 'x');
-    g.add(makeLabel(`${p.height}`, new THREE.Vector3(rx + 0.22, 0, 0)));
+  for (const sp of rightPanels) {
+    const rotY = (sp.angle * Math.PI) / 180;
+    const halfW = (sp.width * S) / 2;
+    const rdx = Math.cos(rotY);
+    const rdz = -Math.sin(rotY);
+
+    const cx = jointX + rdx * halfW;
+    const cz = jointZ + rdz * halfW;
+    const endX = cx + rdx * halfW;
+    const endZ = cz + rdz * halfW;
+
+    const startPt = new THREE.Vector3(jointX, by, jointZ);
+    const endPt = new THREE.Vector3(endX, by, endZ);
+    const midPt = new THREE.Vector3(cx, by - 0.08, cz);
+
+    line(startPt, endPt);
+    tick(startPt, 'y');
+    tick(endPt, 'y');
+    g.add(makeLabel(`${sp.width}`, midPt));
+
+    jointX = endX;
+    jointZ = endZ;
+  }
+
+  // 左侧面板标注
+  const leftPanels = panels.slice(0, baseIdx).reverse();
+  jointX = -bw / 2;
+  jointZ = 0;
+
+  for (const sp of leftPanels) {
+    const rotY = (sp.angle * Math.PI) / 180;
+    const halfW = (sp.width * S) / 2;
+    const rdx = Math.cos(rotY);
+    const rdz = -Math.sin(rotY);
+
+    const cx = jointX - rdx * halfW;
+    const cz = jointZ - rdz * halfW;
+    const endX = cx - rdx * halfW;
+    const endZ = cz - rdz * halfW;
+
+    const startPt = new THREE.Vector3(jointX, by, jointZ);
+    const endPt = new THREE.Vector3(endX, by, endZ);
+    const midPt = new THREE.Vector3(cx, by - 0.08, cz);
+
+    line(startPt, endPt);
+    tick(startPt, 'y');
+    tick(endPt, 'y');
+    g.add(makeLabel(`${sp.width}`, midPt));
+
+    jointX = endX;
+    jointZ = endZ;
   }
 
   return g;
