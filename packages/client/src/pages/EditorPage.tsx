@@ -21,7 +21,7 @@ import {
   deleteSashFromOpening,
   createCustomSplitWindow,
 } from '@/lib/window-factory';
-import { COMPOSITE_TEMPLATES } from '@/lib/composite-factory';
+import { COMPOSITE_TEMPLATES, createLShapeWindow, createUShapeWindow, createBayWindow } from '@/lib/composite-factory';
 import type { SplitConfig } from '@/components/CustomSplitDialog';
 import type { WindowUnit } from '@/lib/types';
 import { toast } from 'sonner';
@@ -274,8 +274,45 @@ export default function EditorPage() {
   // ===== Sketch Recognition: 手绘草图识别生成窗户 =====
   const handleSketchGenerate = useCallback((result: SketchRecognitionResult) => {
     pushHistory(getSnapshot());
-    // 根据识别结果创建窗户
-    if (result.splitConfig) {
+
+    // 组合窗识别结果（转角窗/凸窗）
+    if (result.compositeType) {
+      const pos = findNonOverlappingPosition(2000, 1500);
+      let newCW;
+      switch (result.compositeType) {
+        case 'l-shape': {
+          const panels = result.compositePanels || [];
+          const frontW = panels[0]?.width || 1500;
+          const sideW = panels[1]?.width || 1000;
+          const h = panels[0]?.height || 1500;
+          newCW = createLShapeWindow(pos.x, pos.y, activeProfileSeries, frontW, sideW, h);
+          break;
+        }
+        case 'u-shape': {
+          const panels = result.compositePanels || [];
+          const frontW = panels[1]?.width || 1800;
+          const sideW = panels[0]?.width || 800;
+          const h = panels[0]?.height || 1500;
+          newCW = createUShapeWindow(pos.x, pos.y, activeProfileSeries, frontW, sideW, h);
+          break;
+        }
+        case 'bay-window': {
+          const panels = result.compositePanels || [];
+          const frontW = panels[1]?.width || 1600;
+          const sideW = panels[0]?.width || 600;
+          const h = panels[0]?.height || 1500;
+          newCW = createBayWindow(pos.x, pos.y, activeProfileSeries, frontW, sideW, h);
+          break;
+        }
+        default: {
+          newCW = createUShapeWindow(pos.x, pos.y, activeProfileSeries);
+          break;
+        }
+      }
+      addCompositeWindow(newCW);
+      toast.success(`手绘识别成功：已生成 ${result.name}`);
+    } else if (result.splitConfig) {
+      // 普通等分窗
       const config = result.splitConfig;
       const pos = findNonOverlappingPosition(config.totalWidth, config.totalHeight);
       const newWin = createCustomSplitWindow(
@@ -291,16 +328,23 @@ export default function EditorPage() {
       addWindowUnit(newWin);
       toast.success(`手绘识别成功：已生成 ${result.name || '窗户'}`);
     } else {
-      // 简单窗户
+      // 简单窗户 - 使用 createCustomSplitWindow 创建指定尺寸的单格窗
       const pos = findNonOverlappingPosition(result.width, result.height);
-      const tpl = WINDOW_TEMPLATES[0]; // 固定窗模板
-      const newWin = tpl.create(result.width, result.height, pos.x, pos.y, activeProfileSeries);
-      newWin.name = result.name || newWin.name;
+      const newWin = createCustomSplitWindow(
+        result.width,
+        result.height,
+        'vertical',
+        [result.width],
+        pos.x,
+        pos.y,
+        activeProfileSeries
+      );
+      newWin.name = result.name || '固定窗';
       addWindowUnit(newWin);
       toast.success(`手绘识别成功：已生成 ${result.name || '固定窗'}`);
     }
     setSketchOpen(false);
-  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit]);
+  }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit, addCompositeWindow]);
 
   // ===== Update window with history =====
   const handleUpdateWindowWithHistory = useCallback((id: string, updates: Partial<WindowUnit>) => {
