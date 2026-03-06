@@ -148,11 +148,36 @@ export interface MaterialConfig {
   colors: ColorConfig;
 }
 
+// ===== 组合窗面板 =====
+export interface CompositePanel {
+  id: string;
+  windowUnit: WindowUnit;
+  angle: number;            // 相对于前一个面板的角度（度），正面=0，左侧面=-90，右侧面=90
+  connectionType: 'corner-post' | 'miter' | 'structural';
+  label: string;            // 面板标签：如 '左侧面', '正面', '右侧面'
+}
+
+// ===== 组合窗（U形窗/L形窗/凸窗等） =====
+export type CompositeWindowType = 'u-shape' | 'l-shape' | 'bay-window' | 'custom-composite';
+
+export interface CompositeWindow {
+  id: string;
+  name: string;
+  type: CompositeWindowType;
+  panels: CompositePanel[];
+  posX: number;
+  posY: number;
+  selected: boolean;
+  // 展示模式
+  viewMode: 'unfold' | 'perspective';
+}
+
 // ===== 设计数据 (完整存储单元) =====
 export interface DesignData {
   id: string;
   name: string;
   windows: WindowUnit[];
+  compositeWindows?: CompositeWindow[];
   materialConfig?: MaterialConfig;
   createdAt: string;
   updatedAt: string;

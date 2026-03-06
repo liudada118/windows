@@ -14,6 +14,7 @@ import FrameRenderer from './FrameRenderer';
 import OpeningRenderer from './OpeningRenderer';
 import DimensionRenderer from './DimensionRenderer';
 import SelectionOverlay from './SelectionOverlay';
+import CompositeWindowRenderer from './CompositeWindowRenderer';
 import { COLORS, MM_TO_PX } from '@/lib/constants';
 import { validateWindowSize, validateMullionPlacement, validateSashPlacement } from '@/lib/validators';
 import { findLeafOpeningAtPoint, findMullionAtPoint as findMullionAtPointGeo, snapToGrid } from '@/lib/geometry';
@@ -62,6 +63,8 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const setSash = useDesignStore((s) => s.setSash);
   const moveMullion = useDesignStore((s) => s.moveMullion);
   const getSnapshot = useDesignStore((s) => s.getSnapshot);
+  const selectedCompositeWindowId = useDesignStore((s) => s.selectedCompositeWindowId);
+  const selectCompositeWindow = useDesignStore((s) => s.selectCompositeWindow);
 
   // Canvas Store
   const activeTool = useCanvasStore((s) => s.activeTool);
@@ -900,6 +903,24 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
                 {isSelected && (
                   <SelectionOverlay window={win} zoom={zoom} />
                 )}
+              </Group>
+            );
+          })}
+          {/* 组合窗渲染 */}
+          {(designData.compositeWindows || []).map((cw) => {
+            const isSelected = cw.id === selectedCompositeWindowId;
+            const cx = cw.posX * scale + panX;
+            const cy = cw.posY * scale + panY;
+
+            return (
+              <Group key={cw.id} x={cx} y={cy}>
+                <CompositeWindowRenderer
+                  compositeWindow={cw}
+                  zoom={zoom}
+                  isSelected={isSelected}
+                  selectedElementId={selectedElementId}
+                  hoveredOpeningId={hoveredOpeningId}
+                />
               </Group>
             );
           })}

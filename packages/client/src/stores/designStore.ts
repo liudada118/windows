@@ -14,6 +14,7 @@ import type {
   DesignData,
   Rect,
   MaterialConfig,
+  CompositeWindow,
 } from '@windoor/shared';
 import { DEFAULT_PROFILE_SERIES } from '@windoor/shared';
 import { DEFAULT_COLOR_CONFIG, DEFAULT_GLASS } from '@/lib/constants';
@@ -528,6 +529,8 @@ interface DesignStoreState {
   designData: DesignData;
   /** 当前选中的窗户 ID */
   selectedWindowId: string | null;
+  /** 当前选中的组合窗 ID */
+  selectedCompositeWindowId: string | null;
   /** 当前选中的元素 ID */
   selectedElementId: string | null;
   /** 当前选中的元素类型 */
@@ -579,6 +582,18 @@ interface DesignStoreActions {
   updateWindow: (windowId: string, updates: Partial<WindowUnit>) => void;
   /** 更新材料配置 */
   updateMaterialConfig: (config: MaterialConfig) => void;
+  /** 添加组合窗 */
+  addCompositeWindow: (compositeWindow: CompositeWindow) => void;
+  /** 删除组合窗 */
+  deleteCompositeWindow: (compositeWindowId: string) => void;
+  /** 选中组合窗 */
+  selectCompositeWindow: (compositeWindowId: string | null) => void;
+  /** 更新组合窗位置 */
+  updateCompositeWindowPosition: (compositeWindowId: string, posX: number, posY: number) => void;
+  /** 切换组合窗视图模式 */
+  toggleCompositeViewMode: (compositeWindowId: string) => void;
+  /** 获取选中的组合窗 */
+  getSelectedCompositeWindow: () => CompositeWindow | null;
 }
 
 type DesignStore = DesignStoreState & DesignStoreActions;
@@ -603,6 +618,7 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
   // ===== State =====
   designData: createEmptyDesign(),
   selectedWindowId: null,
+  selectedCompositeWindowId: null,
   selectedElementId: null,
   selectedElementType: null,
   activeSashType: 'casement-left',
@@ -904,5 +920,71 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
         updatedAt: new Date().toISOString(),
       },
     }));
+  },
+
+  // ===== 组合窗 Actions =====
+
+  addCompositeWindow: (compositeWindow) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        compositeWindows: [...(state.designData.compositeWindows || []), compositeWindow],
+        updatedAt: new Date().toISOString(),
+      },
+      selectedCompositeWindowId: compositeWindow.id,
+      selectedWindowId: null,
+    }));
+  },
+
+  deleteCompositeWindow: (compositeWindowId) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        compositeWindows: (state.designData.compositeWindows || []).filter(cw => cw.id !== compositeWindowId),
+        updatedAt: new Date().toISOString(),
+      },
+      selectedCompositeWindowId: state.selectedCompositeWindowId === compositeWindowId ? null : state.selectedCompositeWindowId,
+    }));
+  },
+
+  selectCompositeWindow: (compositeWindowId) => {
+    set({
+      selectedCompositeWindowId: compositeWindowId,
+      selectedWindowId: compositeWindowId ? null : undefined as any,
+      selectedElementId: null,
+      selectedElementType: null,
+    });
+  },
+
+  updateCompositeWindowPosition: (compositeWindowId, posX, posY) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        compositeWindows: (state.designData.compositeWindows || []).map(cw =>
+          cw.id === compositeWindowId ? { ...cw, posX, posY } : cw
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+
+  toggleCompositeViewMode: (compositeWindowId) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        compositeWindows: (state.designData.compositeWindows || []).map(cw =>
+          cw.id === compositeWindowId
+            ? { ...cw, viewMode: cw.viewMode === 'unfold' ? 'perspective' as const : 'unfold' as const }
+            : cw
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+
+  getSelectedCompositeWindow: () => {
+    const state = get();
+    if (!state.selectedCompositeWindowId) return null;
+    return (state.designData.compositeWindows || []).find(cw => cw.id === state.selectedCompositeWindowId) || null;
   },
 }));

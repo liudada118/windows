@@ -16,6 +16,9 @@ export type {
   DesignData,
   ColorConfig,
   MaterialConfig,
+  CompositePanel,
+  CompositeWindow,
+  CompositeWindowType,
 } from './design';
 
 export type {
