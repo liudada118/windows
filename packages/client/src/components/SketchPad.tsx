@@ -40,11 +40,11 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
     // Set canvas size
     const rect = canvas.parentElement?.getBoundingClientRect();
     if (rect) {
-      canvas.width = Math.min(rect.width - 32, 800);
-      canvas.height = Math.min(rect.height - 200, 600);
+      canvas.width = Math.min(rect.width - 32, 1200);
+      canvas.height = Math.min(rect.height - 180, 800);
     } else {
-      canvas.width = 600;
-      canvas.height = 450;
+      canvas.width = 900;
+      canvas.height = 650;
     }
 
     // White background
@@ -188,7 +188,7 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[oklch(0.16_0.02_260)] border border-[oklch(0.30_0.04_260)] rounded-xl shadow-2xl w-[90vw] max-w-[900px] max-h-[90vh] flex flex-col">
+      <div className="bg-[oklch(0.16_0.02_260)] border border-[oklch(0.30_0.04_260)] rounded-xl shadow-2xl w-[95vw] max-w-[1300px] max-h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[oklch(0.25_0.035_260)]">
           <div>
