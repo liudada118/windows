@@ -281,10 +281,8 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
   }, []);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (step !== 'select-region' || detectMode !== 'manual') return;
-
-    // 检查是否点击了角点
-    if (editingCorners && photo) {
+    // 在 adjusting 或 select-region 步骤中，检查是否点击了角点（支持拖拽调整）
+    if ((step === 'adjusting' || step === 'select-region') && editingCorners && photo) {
       const coords = getCanvasCoords(e);
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -293,24 +291,29 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
       const cx = coords.x * scaleX;
       const cy = coords.y * scaleY;
 
+      // 移动端触摸点击区域更大（手指比鼠标粗）
+      const hitRadius = 25;
       const cornerNames = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const;
       for (const name of cornerNames) {
         const corner = editingCorners[name];
         const px = corner.x * canvas.width;
         const py = corner.y * canvas.height;
-        if (Math.abs(cx - px) < 15 && Math.abs(cy - py) < 15) {
+        if (Math.abs(cx - px) < hitRadius && Math.abs(cy - py) < hitRadius) {
+          e.preventDefault();
           setDraggingCorner(name);
           return;
         }
       }
     }
 
-    // 开始框选
-    e.preventDefault();
-    const coords = getCanvasCoords(e);
-    setIsDrawingRegion(true);
-    setDrawStart(coords);
-    setDrawCurrent(coords);
+    // 仅在手动框选模式下开始框选
+    if (step === 'select-region' && detectMode === 'manual') {
+      e.preventDefault();
+      const coords = getCanvasCoords(e);
+      setIsDrawingRegion(true);
+      setDrawStart(coords);
+      setDrawCurrent(coords);
+    }
   }, [step, detectMode, editingCorners, photo, getCanvasCoords]);
 
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
@@ -754,9 +757,10 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
             <div className="absolute inset-0 overflow-auto flex items-center justify-center bg-[oklch(0.08_0.01_260)]">
               <canvas
                 ref={canvasRef}
-                className={`max-w-full max-h-full ${
+                className={`max-w-full max-h-full touch-none ${
                   step === 'select-region' && detectMode === 'manual' ? 'cursor-crosshair' :
-                  draggingCorner ? 'cursor-grabbing' : 'cursor-default'
+                  draggingCorner ? 'cursor-grabbing' :
+                  step === 'adjusting' ? 'cursor-grab' : 'cursor-default'
                 }`}
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
@@ -764,6 +768,96 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
                 onMouseLeave={() => {
                   if (isDrawingRegion) setIsDrawingRegion(false);
                   if (draggingCorner) setDraggingCorner(null);
+                }}
+                onTouchStart={(e) => {
+                  if ((step === 'adjusting' || step === 'select-region') && editingCorners && photo) {
+                    const touch = e.touches[0];
+                    const canvas = canvasRef.current;
+                    if (!canvas || !touch) return;
+                    const rect = canvas.getBoundingClientRect();
+                    const coords = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+                    const scaleX = canvas.width / canvas.clientWidth;
+                    const scaleY = canvas.height / canvas.clientHeight;
+                    const cx = coords.x * scaleX;
+                    const cy = coords.y * scaleY;
+                    const hitRadius = 35; // 触摸屏更大的点击区域
+                    const cornerNames = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const;
+                    for (const name of cornerNames) {
+                      const corner = editingCorners[name];
+                      const px = corner.x * canvas.width;
+                      const py = corner.y * canvas.height;
+                      if (Math.abs(cx - px) < hitRadius && Math.abs(cy - py) < hitRadius) {
+                        e.preventDefault();
+                        setDraggingCorner(name);
+                        return;
+                      }
+                    }
+                  }
+                  // 触摸框选
+                  if (step === 'select-region' && detectMode === 'manual') {
+                    const touch = e.touches[0];
+                    const canvas = canvasRef.current;
+                    if (!canvas || !touch) return;
+                    const rect = canvas.getBoundingClientRect();
+                    const coords = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+                    e.preventDefault();
+                    setIsDrawingRegion(true);
+                    setDrawStart(coords);
+                    setDrawCurrent(coords);
+                  }
+                }}
+                onTouchMove={(e) => {
+                  if (draggingCorner && editingCorners) {
+                    const touch = e.touches[0];
+                    const canvas = canvasRef.current;
+                    if (!canvas || !touch) return;
+                    e.preventDefault();
+                    const rect = canvas.getBoundingClientRect();
+                    const coords = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+                    const scaleX = canvas.width / canvas.clientWidth;
+                    const scaleY = canvas.height / canvas.clientHeight;
+                    const nx = (coords.x * scaleX) / canvas.width;
+                    const ny = (coords.y * scaleY) / canvas.height;
+                    setEditingCorners(prev => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        [draggingCorner]: { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) },
+                      };
+                    });
+                    return;
+                  }
+                  if (isDrawingRegion) {
+                    const touch = e.touches[0];
+                    const canvas = canvasRef.current;
+                    if (!canvas || !touch) return;
+                    e.preventDefault();
+                    const rect = canvas.getBoundingClientRect();
+                    setDrawCurrent({ x: touch.clientX - rect.left, y: touch.clientY - rect.top });
+                  }
+                }}
+                onTouchEnd={() => {
+                  if (draggingCorner) {
+                    setDraggingCorner(null);
+                    return;
+                  }
+                  if (isDrawingRegion) {
+                    setIsDrawingRegion(false);
+                    const canvas = canvasRef.current;
+                    if (!canvas) return;
+                    const scaleX = canvas.width / canvas.clientWidth;
+                    const scaleY = canvas.height / canvas.clientHeight;
+                    const x = Math.min(drawStart.x, drawCurrent.x) * scaleX;
+                    const y = Math.min(drawStart.y, drawCurrent.y) * scaleY;
+                    const width = Math.abs(drawCurrent.x - drawStart.x) * scaleX;
+                    const height = Math.abs(drawCurrent.y - drawStart.y) * scaleY;
+                    if (width < 30 || height < 30) return;
+                    const region = createRegionFromRect(x, y, width, height, canvas.width, canvas.height);
+                    setManualRegion(region);
+                    setEditingCorners({ ...region.corners });
+                    setDetectMode('manual');
+                    setStep('adjusting');
+                  }
                 }}
               />
             </div>
