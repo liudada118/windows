@@ -65,7 +65,6 @@ export default function EditorPage() {
   const addCompositeWindow = useDesignStore((s) => s.addCompositeWindow);
   const deleteCompositeWindow = useDesignStore((s) => s.deleteCompositeWindow);
   const selectedCompositeWindowId = useDesignStore((s) => s.selectedCompositeWindowId);
-  const getSelectedCompositeWindow = useDesignStore((s) => s.getSelectedCompositeWindow);
   const compositeWindows = useDesignStore((s) => s.designData.compositeWindows);
 
   const activeTool = useCanvasStore((s) => s.activeTool);
@@ -110,7 +109,7 @@ export default function EditorPage() {
   const canUndo = canUndoFn();
   const canRedo = canRedoFn();
   const selectedWindow = windows.find((w) => w.id === selectedWindowId) || null;
-  const selectedCompositeWindow = getSelectedCompositeWindow();
+  const selectedCompositeWindow = compositeWindows?.find(cw => cw.id === selectedCompositeWindowId) || null;
 
   // ===== Auto-save & Keyboard shortcuts =====
   useAutoSave();

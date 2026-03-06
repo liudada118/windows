@@ -952,7 +952,7 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
   selectCompositeWindow: (compositeWindowId) => {
     set({
       selectedCompositeWindowId: compositeWindowId,
-      selectedWindowId: compositeWindowId ? null : undefined as any,
+      selectedWindowId: null,
       selectedElementId: null,
       selectedElementType: null,
     });
