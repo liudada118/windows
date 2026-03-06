@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V3.1 | **最后更新：** 2026-03-02 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V3.2 | **最后更新：** 2026-03-06 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -397,6 +397,7 @@ windoor-designer/
 │   │       ├── App.tsx                # 路由 & Provider
 │   │       ├── index.css              # 全局样式 & Tailwind 主题
 │   │       ├── pages/
+│   │       │   ├── PhotoPage.tsx       # ★ 拍照识别页面（AI窗型识别+3D框架生成）
 │   │       │   ├── EditorPage.tsx      # 主设计器页面（三栏布局）
 │   │       │   ├── Editor.tsx          # 旧版编辑器（保留）
 │   │       │   └── NotFound.tsx        # 404 页面
@@ -423,6 +424,7 @@ windoor-designer/
 │   │       │   ├── VersionManager.tsx  # ★ 版本管理面板（Phase 5）
 │   │       │   ├── CanvasRenderer.tsx  # 旧版 SVG 画布（保留）
 │   │       │   ├── Preview3D.tsx       # Three.js 3D 预览
+│   │       │   ├── PhotoFramePreview.tsx # ★ 拍照识别3D框架预览组件（Three.js）
 │   │       │   ├── ErrorBoundary.tsx   # 错误边界
 │   │       │   └── ui/                # shadcn/ui 组件
 │   │       ├── stores/                # ★ Zustand 状态管理（新增）
@@ -456,6 +458,8 @@ windoor-designer/
 │   │       │   │   ├── calc-module.ts # 门窗算料模块
 │   │       │   │   └── calc-worker.ts # Web Worker 异步计算
 │   │       │   ├── window-factory.ts   # 窗户工厂函数+预设模板
+│   │       │   ├── photoRecognition.ts # ★ AI拍照识别服务（OpenAI Vision + 演示模式）
+│   │       │   ├── photoWindowFactory.ts # ★ 拍照识别→3D框架工厂函数
 │   │       │   ├── types.ts           # 前端类型定义
 │   │       │   └── utils.ts           # 通用工具
 │   │       └── contexts/
@@ -567,6 +571,11 @@ windoor-designer/
 | 2026-03-02 | 格条渲染 | 4种格条样式（十字/田字/菱形/自定义网格） |
 | 2026-03-02 | 版本管理 | VersionManager 组件：保存/恢复/删除版本快照，localStorage 持久化 |
 | 2026-03-02 | TopBar 增强 | 新增算料/导出/版本管理按钮到顶部工具栏 |
+| 2026-03-06 | 拍照识别页面 (PhotoPage) | 完整的拍照识别页面：图片上传/拍照、AI窗型识别、3D框架预览、尺寸编辑、导入编辑器 |
+| 2026-03-06 | AI窗型识别服务 | photoRecognition.ts：支持OpenAI Vision API识别 + 内置演示模式（无需API Key即可体验） |
+| 2026-03-06 | 拍照→3D框架工厂 | photoWindowFactory.ts：将AI识别结果转换为矩形窗/L形窗/U形窗/凸窗的3D框架数据 |
+| 2026-03-06 | 3D框架预览组件 | PhotoFramePreview.tsx：Three.js渲染窗型3D线框，支持正视图/透视图/俯视图/网格切换 |
+| 2026-03-06 | TopBar/移动端入口 | 在TopBar和移动端头部添加「拍照识别」入口按钮（紫色Camera图标） |
 
 ### 9.2 当前状态评估
 

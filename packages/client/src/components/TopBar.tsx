@@ -17,13 +17,14 @@ interface TopBarProps {
   onOpenVersions?: () => void;
   onOpenSketch?: () => void;
   onOpenShowcase?: () => void;
+  onOpenPhoto?: () => void;
 }
 
 const LOGO_URL = 'https://d2xsxph8kpxj0f.cloudfront.net/310519663332343321/Gg9tgRnnjrcuKp9tUpK6zd/logo-windoor-M8w5wRwzxGY7XhN2HR8qxP.webp';
 
 export default function TopBar({
   onNewProject, onExportJSON, windowCount, onOpenQuote, viewMode, onSetViewMode,
-  onOpenBOM, onOpenExport, onOpenVersions, onOpenSketch, onOpenShowcase,
+  onOpenBOM, onOpenExport, onOpenVersions, onOpenSketch, onOpenShowcase, onOpenPhoto,
 }: TopBarProps) {
   return (
     <div className="h-10 bg-[oklch(0.13_0.022_260)] border-b border-[oklch(0.25_0.035_260)] flex items-center px-3 gap-1 select-none">
@@ -170,6 +171,16 @@ export default function TopBar({
           >
             <Presentation size={14} />
             <span>效果图</span>
+          </button>
+        )}
+
+        {onOpenPhoto && (
+          <button
+            onClick={onOpenPhoto}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-violet-400/80 hover:text-violet-300 hover:bg-violet-500/10 rounded transition-colors"
+          >
+            <Camera size={14} />
+            <span>拍照识别</span>
           </button>
         )}
       </div>
