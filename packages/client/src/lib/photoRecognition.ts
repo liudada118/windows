@@ -227,8 +227,10 @@ function mapToCompositeType(windowType: string): CompositeWindowType | undefined
 
 // ===== 模拟识别（用于无API Key时的演示） =====
 
-export function mockRecognizeWindow(): PhotoRecognitionResult {
-  return {
+// 演示模式数据集 - 支持多种窗型
+const MOCK_PRESETS: Record<string, PhotoRecognitionResult> = {
+  // L形窗 - 2面板
+  'l-shape': {
     windowType: 'l-shape',
     windowTypeName: 'L形窗',
     compositeType: 'l-shape',
@@ -245,12 +247,73 @@ export function mockRecognizeWindow(): PhotoRecognitionResult {
     totalWidth: 3950,
     totalHeight: 1870,
     description: 'L形转角窗，由正面和右侧面组成，两面呈90度角。正面宽2450mm，侧面宽1500mm，高度1870mm。',
-    suggestions: [
-      '建议确认转角处的立柱宽度',
-      '注意检查两面是否完全垂直',
-      '建议测量窗台到地面的高度',
-    ],
+    suggestions: ['建议确认转角处的立柱宽度', '注意检查两面是否完全垂直'],
     panelCount: 2,
     sashTypes: ['sliding-left', 'sliding-right', 'casement-right'],
-  };
+  },
+  // U形窗 - 3面板
+  'u-shape': {
+    windowType: 'u-shape',
+    windowTypeName: 'U形窗',
+    compositeType: 'u-shape',
+    confidence: 0.88,
+    dimensions: [
+      { label: '左侧面宽度', value: 1200, side: 'left' },
+      { label: '正面宽度', value: 2400, side: 'front' },
+      { label: '右侧面宽度', value: 1200, side: 'right' },
+      { label: '窗户高度', value: 1800, side: 'front' },
+    ],
+    panels: [
+      { label: '左侧面', width: 1200, height: 1800, angle: -90 },
+      { label: '正面', width: 2400, height: 1800, angle: 0 },
+      { label: '右侧面', width: 1200, height: 1800, angle: 90 },
+    ],
+    totalWidth: 4800,
+    totalHeight: 1800,
+    description: 'U形三面围合窗，正面2400mm，左右侧面各1200mm，高度1800mm。',
+    suggestions: ['建议确认三面是否完全垂直'],
+    panelCount: 3,
+    sashTypes: ['casement-left', 'fixed', 'sliding-right', 'casement-right'],
+  },
+  // 凸窗/飘窗 - 5面板
+  'bay-window': {
+    windowType: 'bay-window',
+    windowTypeName: '凸窗/飘窗',
+    compositeType: 'bay-window',
+    confidence: 0.85,
+    dimensions: [
+      { label: '左墙面宽度', value: 800, side: 'left' },
+      { label: '左斜面宽度', value: 600, side: 'left' },
+      { label: '正面宽度', value: 1800, side: 'front' },
+      { label: '右斜面宽度', value: 600, side: 'right' },
+      { label: '右墙面宽度', value: 800, side: 'right' },
+      { label: '窗户高度', value: 1600, side: 'front' },
+    ],
+    panels: [
+      { label: '左墙面', width: 800, height: 1600, angle: -90 },
+      { label: '左斜面', width: 600, height: 1600, angle: -45 },
+      { label: '正面', width: 1800, height: 1600, angle: 0 },
+      { label: '右斜面', width: 600, height: 1600, angle: 45 },
+      { label: '右墙面', width: 800, height: 1600, angle: 90 },
+    ],
+    totalWidth: 4600,
+    totalHeight: 1600,
+    description: '五面凸窗/飘窗，正面1800mm，左右各有45度斜面600mm和90度墙面800mm，高度1600mm。',
+    suggestions: ['建议确认斜面角度', '注意检查各面板之间的密封'],
+    panelCount: 5,
+    sashTypes: ['fixed', 'casement-left', 'fixed', 'casement-right', 'fixed'],
+  },
+};
+
+// 根据照片中的线索智能选择mock数据
+export function mockRecognizeWindow(imageDataURL?: string): PhotoRecognitionResult {
+  // 简单的启发式：根据照片中可能的特征选择窗型
+  // 实际使用时，这里会被AI识别替代
+  // 默认返回L形窗（最常见的演示场景）
+  return { ...MOCK_PRESETS['l-shape'] };
+}
+
+// 获取指定窗型的mock数据（用于测试）
+export function getMockPreset(type: 'l-shape' | 'u-shape' | 'bay-window'): PhotoRecognitionResult {
+  return { ...MOCK_PRESETS[type] };
 }
