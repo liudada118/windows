@@ -594,6 +594,8 @@ interface DesignStoreActions {
   toggleCompositeViewMode: (compositeWindowId: string) => void;
   /** 获取选中的组合窗 */
   getSelectedCompositeWindow: () => CompositeWindow | null;
+  /** 更新组合窗某个面板的尺寸 */
+  updateCompositePanel: (compositeWindowId: string, panelId: string, width: number, height: number) => void;
 }
 
 type DesignStore = DesignStoreState & DesignStoreActions;
@@ -986,5 +988,41 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
     const state = get();
     if (!state.selectedCompositeWindowId) return null;
     return (state.designData.compositeWindows || []).find(cw => cw.id === state.selectedCompositeWindowId) || null;
+  },
+
+  updateCompositePanel: (compositeWindowId, panelId, width, height) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        compositeWindows: (state.designData.compositeWindows || []).map(cw => {
+          if (cw.id !== compositeWindowId) return cw;
+          return {
+            ...cw,
+            panels: cw.panels.map(panel => {
+              if (panel.id !== panelId) return panel;
+              const newWin = { ...panel.windowUnit, width, height };
+              // 更新 frame 和 root opening 的 rect
+              const newFrame = {
+                ...newWin.frame,
+                rect: { x: 0, y: 0, width, height },
+                openings: newWin.frame.openings.map((op, idx) =>
+                  idx === 0 ? {
+                    ...op,
+                    rect: {
+                      x: newWin.frame.profileWidth,
+                      y: newWin.frame.profileWidth,
+                      width: width - newWin.frame.profileWidth * 2,
+                      height: height - newWin.frame.profileWidth * 2,
+                    },
+                  } : op
+                ),
+              };
+              return { ...panel, windowUnit: { ...newWin, frame: newFrame } };
+            }),
+          };
+        }),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
   },
 }));
