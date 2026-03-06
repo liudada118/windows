@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V3.2 | **最后更新：** 2026-03-06 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V3.3 | **最后更新：** 2026-03-07 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -70,6 +70,7 @@
 | 2D 画布 | **Konva.js + react-konva** | — | **已完成迁移** |
 | 状态管理 | **Zustand** (designStore/canvasStore/historyStore) | — | **已完成迁移** |
 | 3D 渲染 | Three.js + R3F + **ThreePreviewV2**（颜色/木纹/爆炸视图） | — | **已增强** |
+| 实景融合 | **ScenePreview V2**（AI门洞检测 + 透视变换 + 多层合成） | — | **已完成** |
 | 导出引擎 | **jspdf + dxf-writer + jszip + file-saver** | — | **已完成** |
 | 算料引擎 | **WindoorFormula DSL**（Tokenizer/Parser/Evaluator + Web Worker） | — | **已完成** |
 | 后端 | 无（纯前端静态） | — | **需升级为全栈** |
@@ -258,7 +259,13 @@ EditorPage.tsx (主设计器页面 - 三栏布局)
 ├── PropertiesPanel (右侧属性面板：尺寸/位置/型材)
 ├── QuoteDialog (报价对话框 - 过滤无效项/单价可编辑)
 ├── ExportDialog (导出对话框 - PNG/SVG/PDF/DXF)
+├── ScenePreview V2 (实景融合预览 - AI检测/手动框选/透视变换/多层合成)
 └── ShortcutsDialog (快捷键帮助面板)
+
+实景融合引擎
+├── sceneFusion.ts (核心引擎：AI门洞检测 + 透视变换 + 图像合成)
+├── ScenePreview.tsx (前端组件：双模式交互 + 参数调节 + 效果图导出)
+└── 合成管线：原始照片 → 内阴影 → 透视变换叠加 → 边缘羽化 → 色温匹配 → 玻璃反射 → 亮度匹配
 
 Zustand Stores (状态管理)
 ├── designStore: 设计数据 + CRUD (BUG-007 修复)
@@ -576,6 +583,9 @@ windoor-designer/
 | 2026-03-06 | 拍照→3D框架工厂 | photoWindowFactory.ts：将AI识别结果转换为矩形窗/L形窗/U形窗/凸窗的3D框架数据 |
 | 2026-03-06 | 3D框架预览组件 | PhotoFramePreview.tsx：Three.js渲染窗型3D线框，支持正视图/透视图/俯视图/网格切换 |
 | 2026-03-06 | TopBar/移动端入口 | 在TopBar和移动端头部添加「拍照识别」入口按钮（紫色Camera图标） |
+| 2026-03-07 | 实景融合引擎 (sceneFusion.ts) | AI门洞检测（OpenAI Vision API）+ 透视变换引擎（网格细分+三角形纹理映射）+ 7层图像合成管线 |
+| 2026-03-07 | ScenePreview V2 组件 | 重写实景融合预览组件：AI自动检测/手动框选双模式、四角透视校正、阴影融合、边缘羽化、色温匹配、玻璃反射、高级参数面板 |
+| 2026-03-07 | 3D门窗截图服务 | captureWindow3DSnapshot：离屏Three.js渲染器，正交相机透明背景截图，支持材质配置 |
 
 ### 9.2 当前状态评估
 
