@@ -9,7 +9,7 @@ import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Maximize2, Gri
 import { useLocation } from 'wouter';
 import type { WindowUnit, Opening, Mullion } from '@/lib/types';
 import { DEFAULT_PROFILE_SERIES } from '@windoor/shared';
-import { MATERIAL_PRESETS, COLOR_PRESETS } from '@/lib/constants';
+import { MATERIAL_TYPES, COLOR_PRESETS } from '@/lib/constants';
 
 // ===== Constants =====
 const SHOWCASE_SCALE = 0.4; // mm to px for showcase
@@ -35,8 +35,8 @@ function collectOpenings(opening: Opening, results: { rect: { x: number; y: numb
 
 // ===== Helper: collect mullions recursively =====
 function collectMullions(opening: Opening, results: Mullion[] = []) {
-  if (opening.mullion) {
-    results.push(opening.mullion);
+  if (opening.mullions && opening.mullions.length > 0) {
+    results.push(...opening.mullions);
   }
   if (opening.childOpenings) {
     for (const child of opening.childOpenings) {
@@ -49,20 +49,21 @@ function collectMullions(opening: Opening, results: Mullion[] = []) {
 // ===== Window Showcase Card =====
 function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) {
   const scale = SHOWCASE_SCALE;
-  const frameWidth = win.profileSeries?.frameWidth || 60;
-  const mullionWidth = win.profileSeries?.mullionWidth || 70;
+  const series = DEFAULT_PROFILE_SERIES.find(p => p.id === win.profileSeriesId);
+  const frameWidth = series?.frameWidth || win.frame.profileWidth || 60;
+  const mullionWidth = series?.mullionWidth || 70;
 
   const canvasWidth = win.width * scale + PADDING * 2;
   const canvasHeight = win.height * scale + PADDING * 2 + 80; // extra space for labels
 
-  const openings = collectOpenings(win.rootOpening);
-  const mullions = collectMullions(win.rootOpening);
+  const openings = collectOpenings(win.frame.openings[0]);
+  const mullions = collectMullions(win.frame.openings[0]);
 
   // Get color config
-  const materialConfig = useDesignStore(s => s.materialConfig);
-  const frameColor = materialConfig.frameColor || '#8B8B8B';
-  const glassColor = materialConfig.glassColor || '#B8D4E8';
-  const mullionColor = materialConfig.mullionColor || '#8B8B8B';
+  const materialConfig = useDesignStore(s => s.designData.materialConfig);
+  const frameColor = materialConfig?.colors?.frameColor || '#8B8B8B';
+  const glassColor = materialConfig?.colors?.glassColor || '#B8D4E8';
+  const mullionColor = materialConfig?.colors?.mullionColor || '#8B8B8B';
 
   const ox = PADDING;
   const oy = PADDING;
@@ -75,7 +76,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
           <div>
             <h3 className="text-white font-semibold text-sm">{win.name || `窗户 ${index + 1}`}</h3>
             <p className="text-slate-300 text-xs mt-0.5">
-              {win.width} x {win.height} mm | {win.profileSeries?.name || '默认型材'}
+              {win.width} x {win.height} mm | {series?.name || '默认型材'}
             </p>
           </div>
           <div className="text-right">
@@ -195,8 +196,8 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
 
             {/* Mullions */}
             {mullions.map((m, i) => {
-              const isVertical = m.direction === 'vertical';
-              const parent = findMullionParent(win.rootOpening, m.id);
+              const isVertical = m.type === 'vertical';
+              const parent = findMullionParent(win.frame.openings[0], m.id);
               if (!parent) return null;
               return (
                 <Rect
@@ -322,7 +323,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
         <div className="grid grid-cols-2 gap-3 text-xs">
           <div>
             <span className="text-gray-400">型材系列</span>
-            <p className="text-gray-700 font-medium">{win.profileSeries?.name || '默认'}</p>
+            <p className="text-gray-700 font-medium">{series?.name || '默认'}</p>
           </div>
           <div>
             <span className="text-gray-400">框宽/中梃宽</span>
@@ -354,7 +355,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
 
 // Helper: find parent opening of a mullion
 function findMullionParent(opening: Opening, mullionId: string): Opening | null {
-  if (opening.mullion?.id === mullionId) return opening;
+  if (opening.mullions?.some(m => m.id === mullionId)) return opening;
   if (opening.childOpenings) {
     for (const child of opening.childOpenings) {
       const found = findMullionParent(child, mullionId);
@@ -367,8 +368,8 @@ function findMullionParent(opening: Opening, mullionId: string): Opening | null 
 // ===== Main ShowcasePage =====
 export default function ShowcasePage() {
   const [, navigate] = useLocation();
-  const windows = useDesignStore(s => s.windows);
-  const materialConfig = useDesignStore(s => s.materialConfig);
+  const windows = useDesignStore(s => s.designData.windows);
+  const materialConfig = useDesignStore(s => s.designData.materialConfig);
   const activeProfileSeries = useDesignStore(s => s.activeProfileSeries);
   const showcaseRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -485,9 +486,9 @@ export default function ShowcasePage() {
               <div className="flex items-center gap-2">
                 <div
                   className="w-4 h-4 rounded border border-white/20"
-                  style={{ backgroundColor: materialConfig.frameColor || '#8B8B8B' }}
+                  style={{ backgroundColor: materialConfig?.colors?.frameColor || '#8B8B8B' }}
                 />
-                <p className="text-sm font-semibold">{materialConfig.materialType || '铝合金'}</p>
+                <p className="text-sm font-semibold">{materialConfig?.name || '铝合金'}</p>
               </div>
             </div>
             <div>
@@ -555,7 +556,7 @@ export default function ShowcasePage() {
               </thead>
               <tbody>
                 {windows.map((win, i) => {
-                  const openings = collectOpenings(win.rootOpening);
+                  const openings = collectOpenings(win.frame.openings[0]);
                   const area = (win.width * win.height / 1000000).toFixed(2);
                   return (
                     <tr key={win.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
@@ -565,7 +566,7 @@ export default function ShowcasePage() {
                       <td className="px-4 py-2.5 font-mono text-gray-600">{win.height}</td>
                       <td className="px-4 py-2.5 font-mono text-gray-600">{area}</td>
                       <td className="px-4 py-2.5 text-gray-600">{openings.length} 格</td>
-                      <td className="px-4 py-2.5 text-gray-600">{win.profileSeries?.name || '默认'}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{DEFAULT_PROFILE_SERIES.find(p => p.id === win.profileSeriesId)?.name || '默认'}</td>
                     </tr>
                   );
                 })}
@@ -577,7 +578,7 @@ export default function ShowcasePage() {
                     {windows.reduce((sum, w) => sum + w.width * w.height / 1000000, 0).toFixed(2)} m2
                   </td>
                   <td className="px-4 py-2.5 font-semibold text-gray-700">
-                    {windows.reduce((sum, w) => sum + collectOpenings(w.rootOpening).length, 0)} 格
+                    {windows.reduce((sum, w) => sum + collectOpenings(w.frame.openings[0]).length, 0)} 格
                   </td>
                   <td className="px-4 py-2.5"></td>
                 </tr>

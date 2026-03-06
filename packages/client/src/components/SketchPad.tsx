@@ -40,22 +40,25 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
   const [recognitionResult, setRecognitionResult] = useState<SketchRecognitionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize canvas
-  useEffect(() => {
+  // Initialize canvas - use window dimensions to calculate size since flex layout
+  // may not have settled when useEffect runs
+  const initCanvas = useCallback(() => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size
-    const rect = canvas.parentElement?.getBoundingClientRect();
-    if (rect) {
-      canvas.width = Math.min(rect.width - 32, 1200);
-      canvas.height = Math.min(rect.height - 180, 800);
-    } else {
-      canvas.width = 900;
-      canvas.height = 650;
-    }
+    // Calculate canvas size based on viewport, not parent (parent may not be laid out yet)
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    // Modal is 95vw max 1300px, canvas area is modal minus header(~50px), toolbar(~45px), tips(~60px), footer(~60px), padding(~32px)
+    const modalW = Math.min(viewportW * 0.95, 1300);
+    const availableH = viewportH * 0.95 - 250; // subtract header, toolbar, tips, footer, padding
+    const canvasW = Math.min(modalW - 48, 1200);
+    const canvasH = Math.max(300, Math.min(availableH, 800)); // minimum 300px height
+
+    canvas.width = canvasW;
+    canvas.height = canvasH;
 
     // White background
     ctx.fillStyle = '#ffffff';
@@ -84,6 +87,12 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
     setRecognitionResult(null);
     setError(null);
   }, []);
+
+  useEffect(() => {
+    // Small delay to ensure modal layout is complete
+    const timer = setTimeout(initCanvas, 50);
+    return () => clearTimeout(timer);
+  }, [initCanvas]);
 
   const getPos = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -530,6 +539,13 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
 
   // ===== Step 3: Classify shape =====
 
+  // --- Enhanced interior emptiness detection ---
+  // Instead of just checking if quadrants have ANY content (which catches border lines),
+  // check if the INTERIOR of each quadrant is empty (no drawn content inside, only edges)
+  const interiorEmptiness = checkInteriorEmptiness(
+    isDark, globalMinX, globalMinY, globalMaxX, globalMaxY, drawWidth, drawHeight
+  );
+
   // Bay window / trapezoid detection: check for diagonal lines
   const hasDiagonalLines = detectDiagonalLines(
     isDark, globalMinX, globalMinY, globalMaxX, globalMaxY, drawWidth, drawHeight
@@ -555,20 +571,48 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
     };
   }
 
-  // U-shape: 3 quadrants filled, one row (top or bottom) mostly empty
-  if (filledQuadrants >= 3) {
-    // Check if top center is empty (U-shape opening upward)
-    const topCenterEmpty = !qTL && qBL && qBR && qTR
-      || qTL && qBL && qBR && qTR; // all filled = rectangle
+  // --- L-shape detection (improved): check for one empty interior quadrant ---
+  // An L-shape has one quadrant that is mostly empty INSIDE (not just border lines)
+  const emptyInteriorQuadrants = [
+    interiorEmptiness.topLeft,
+    interiorEmptiness.topRight,
+    interiorEmptiness.bottomLeft,
+    interiorEmptiness.bottomRight,
+  ];
+  const emptyInteriorCount = emptyInteriorQuadrants.filter(v => v).length;
 
-    // More precise U-shape check: bottom row is wide, top row has gap in middle
-    const bottomRowWide = avgBottomFill > gridCols * 0.6;
-    const topRowNarrow = avgTopFill < avgBottomFill * 0.7;
-    const leftColTall = avgLeftFill > gridRows * 0.5;
-    const rightColTall = avgRightFill > gridRows * 0.5;
+  if (emptyInteriorCount === 1) {
+    // Exactly one quadrant interior is empty => L-shape
+    const emptyCorner = interiorEmptiness.topLeft ? 'topLeft'
+      : interiorEmptiness.topRight ? 'topRight'
+      : interiorEmptiness.bottomLeft ? 'bottomLeft'
+      : 'bottomRight';
 
-    if (bottomRowWide && leftColTall && rightColTall && topRowNarrow) {
-      // U-shape window
+    const frontWidth = Math.round(Math.max(800, Math.min(2200, drawWidth * 2)));
+    const sideWidth = Math.round(Math.max(600, Math.min(1500, drawHeight * 1.5)));
+    const winHeight = Math.round(Math.max(800, Math.min(2000, Math.max(drawWidth, drawHeight) * 2)));
+
+    return {
+      name: 'L形窗',
+      width: frontWidth,
+      height: winHeight,
+      compositeType: 'l-shape',
+      compositePanels: [
+        { width: frontWidth, height: winHeight, angle: 0, label: '正面' },
+        { width: sideWidth, height: winHeight, angle: 90, label: '侧面' },
+      ],
+      description: `识别为L形转角窗 (正面 ${frontWidth}mm, 侧面 ${sideWidth}mm, 高 ${winHeight}mm, 空角: ${emptyCorner})`,
+    };
+  }
+
+  // --- U-shape detection (improved) ---
+  // U-shape: two adjacent quadrants on one side are empty, or top-center is empty
+  if (emptyInteriorCount === 2) {
+    // Check if the two empty quadrants are on the same side (top or bottom)
+    const topEmpty = interiorEmptiness.topLeft && interiorEmptiness.topRight;
+    const bottomEmpty = interiorEmptiness.bottomLeft && interiorEmptiness.bottomRight;
+
+    if (topEmpty || bottomEmpty) {
       const frontWidth = Math.round(Math.max(1000, Math.min(2500, drawWidth * 2)));
       const sideWidth = Math.round(frontWidth * 0.45);
       const winHeight = Math.round(Math.max(800, Math.min(2000, drawHeight * 2)));
@@ -588,9 +632,34 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
     }
   }
 
-  // L-shape: exactly 3 quadrants filled (one corner empty)
+  // Fallback: also try the original quadrant-based detection for U and L shapes
+  if (filledQuadrants >= 3) {
+    const bottomRowWide = avgBottomFill > gridCols * 0.6;
+    const topRowNarrow = avgTopFill < avgBottomFill * 0.7;
+    const leftColTall = avgLeftFill > gridRows * 0.5;
+    const rightColTall = avgRightFill > gridRows * 0.5;
+
+    if (bottomRowWide && leftColTall && rightColTall && topRowNarrow) {
+      const frontWidth = Math.round(Math.max(1000, Math.min(2500, drawWidth * 2)));
+      const sideWidth = Math.round(frontWidth * 0.45);
+      const winHeight = Math.round(Math.max(800, Math.min(2000, drawHeight * 2)));
+
+      return {
+        name: 'U形窗',
+        width: frontWidth,
+        height: winHeight,
+        compositeType: 'u-shape',
+        compositePanels: [
+          { width: sideWidth, height: winHeight, angle: -90, label: '左侧面' },
+          { width: frontWidth, height: winHeight, angle: 0, label: '正面' },
+          { width: sideWidth, height: winHeight, angle: 90, label: '右侧面' },
+        ],
+        description: `识别为U形转角窗 (正面 ${frontWidth}mm, 侧面 ${sideWidth}mm, 高 ${winHeight}mm)`,
+      };
+    }
+  }
+
   if (filledQuadrants === 3 || (filledQuadrants === 4 && isLShape(densityGrid, gridRows, gridCols, DENSITY_THRESHOLD))) {
-    // Determine which corner is empty to decide L orientation
     const emptyCorner = !qTL ? 'topLeft' : !qTR ? 'topRight' : !qBL ? 'bottomLeft' : !qBR ? 'bottomRight' : null;
 
     if (emptyCorner) {
@@ -614,6 +683,65 @@ function localSketchRecognition(canvas: HTMLCanvasElement): SketchRecognitionRes
 
   // ===== Step 4: Fall back to standard rectangle window detection =====
   return detectRectangleWindow(isDark, globalMinX, globalMinY, globalMaxX, globalMaxY, drawWidth, drawHeight);
+}
+
+// ===== Check if each quadrant center is INSIDE the drawn shape =====
+// Uses ray-casting: from the center of each quadrant, cast a ray to the right
+// and count how many times it crosses a dark pixel boundary.
+// If the center is inside the shape, it crosses an odd number of times.
+// A quadrant is "empty" (outside the shape) if its center is NOT enclosed.
+function checkInteriorEmptiness(
+  isDark: (x: number, y: number) => boolean,
+  minX: number, minY: number, maxX: number, maxY: number,
+  drawWidth: number, drawHeight: number
+): { topLeft: boolean; topRight: boolean; bottomLeft: boolean; bottomRight: boolean } {
+  const midX = minX + drawWidth / 2;
+  const midY = minY + drawHeight / 2;
+
+  // Check if a point is inside the drawn shape using horizontal ray casting
+  // Cast a ray from (px, py) to the right and count dark-to-light transitions
+  const isOutsideShape = (px: number, py: number): boolean => {
+    // Sample multiple horizontal rays around the point for robustness
+    const offsets = [-8, -4, 0, 4, 8];
+    let outsideVotes = 0;
+
+    for (const dy of offsets) {
+      const testY = Math.round(py + dy);
+      let crossings = 0;
+      let wasInDark = false;
+
+      for (let x = Math.round(px); x <= maxX + 10; x++) {
+        const dark = isDark(x, testY);
+        if (dark && !wasInDark) {
+          crossings++;
+        }
+        wasInDark = dark;
+      }
+
+      // Odd crossings = inside, even = outside
+      if (crossings % 2 === 0) outsideVotes++;
+    }
+
+    // Majority vote
+    return outsideVotes > offsets.length / 2;
+  };
+
+  // Test the center of each quadrant
+  const q1x = minX + drawWidth * 0.25;
+  const q1y = minY + drawHeight * 0.25;
+  const q2x = minX + drawWidth * 0.75;
+  const q2y = minY + drawHeight * 0.25;
+  const q3x = minX + drawWidth * 0.25;
+  const q3y = minY + drawHeight * 0.75;
+  const q4x = minX + drawWidth * 0.75;
+  const q4y = minY + drawHeight * 0.75;
+
+  return {
+    topLeft: isOutsideShape(q1x, q1y),
+    topRight: isOutsideShape(q2x, q2y),
+    bottomLeft: isOutsideShape(q3x, q3y),
+    bottomRight: isOutsideShape(q4x, q4y),
+  };
 }
 
 // ===== Detect diagonal lines (for bay window) =====
