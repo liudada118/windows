@@ -52,6 +52,9 @@ import {
   ChevronUp,
   Info,
   Wand2,
+  Camera,
+  Clipboard,
+  FolderOpen,
 } from 'lucide-react';
 
 interface ScenePreviewProps {
@@ -112,6 +115,10 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // 拖拽上传状态
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // 显示尺寸
   const [displaySize, setDisplaySize] = useState({ width: 800, height: 600 });
@@ -134,12 +141,10 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
     return null;
   }, [detectMode, manualRegion, analysisResult, selectedRegionId]);
 
-  // ========== 文件上传 ==========
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ========== 通用图片加载 ==========
+  const loadImageFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
-      toast.error('请上传图片文件');
+      toast.error('请上传图片文件（JPG、PNG 等）');
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -158,28 +163,76 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
       setManualRegion(null);
       setCompositeUrl('');
       setEditingCorners(null);
+      setIsDragOver(false);
+      toast.success('照片已加载，请选择窗洞区域');
+    };
+    img.onerror = () => {
+      toast.error('图片加载失败，请重试');
     };
     img.src = url;
   }, []);
 
+  // ========== 从相册/文件选择 ==========
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    loadImageFile(file);
+    // 重置 input 以允许重复选择同一文件
+    e.target.value = '';
+  }, [loadImageFile]);
+
+  // ========== 拍照上传 ==========
+  const handleCameraCapture = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    loadImageFile(file);
+    e.target.value = '';
+  }, [loadImageFile]);
+
+  // ========== 拖拽上传 ==========
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-    setPhotoFile(file);
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      setPhoto(img);
-      setPhotoUrl(url);
-      setStep('select-region');
-      setAnalysisResult(null);
-      setManualRegion(null);
-      setCompositeUrl('');
-    };
-    img.src = url;
+    if (!file) return;
+    loadImageFile(file);
+  }, [loadImageFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
   }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  // ========== 粘贴上传 ==========
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    if (step !== 'upload') return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          loadImageFile(file);
+          toast.success('已从剪贴板粘贴图片');
+          break;
+        }
+      }
+    }
+  }, [step, loadImageFile]);
+
+  // 监听全局粘贴事件
+  useEffect(() => {
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [handlePaste]);
 
   // ========== AI 自动检测 ==========
   const handleAIDetect = useCallback(async () => {
@@ -579,35 +632,97 @@ export default function ScenePreview({ windows, selectedWindowId }: ScenePreview
           {step === 'upload' ? (
             <div
               className="absolute inset-0 flex items-center justify-center p-8"
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
               onDrop={handleDrop}
             >
-              <label
-                htmlFor="scene-photo-upload-v2"
-                className="w-full max-w-lg border-2 border-dashed border-slate-600 rounded-2xl p-12 text-center cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all block"
-              >
-                <div className="w-20 h-20 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-5">
-                  <Layers className="w-10 h-10 text-amber-400" />
+              {/* 拖拽覆盖层 */}
+              {isDragOver && (
+                <div className="absolute inset-4 border-3 border-dashed border-amber-400 rounded-3xl bg-amber-500/10 flex items-center justify-center z-50 pointer-events-none">
+                  <div className="text-center">
+                    <Upload className="w-16 h-16 text-amber-400 mx-auto mb-3 animate-bounce" />
+                    <p className="text-lg font-semibold text-amber-300">松开即可上传</p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-200 mb-2">上传现场照片</h3>
-                <p className="text-sm text-slate-500 mb-5 max-w-sm mx-auto">
-                  拍摄窗洞位置的照片，系统将把您设计的 <span className="text-amber-400 font-medium">{targetWindow.name}</span> 融合到照片中，生成逼真的效果预览图。
-                </p>
-                <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-amber-500/20">
-                  <ImageIcon size={16} />
-                  选择图片
+              )}
+
+              <div className="w-full max-w-lg">
+                {/* 主上传区域 */}
+                <div className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all ${
+                  isDragOver
+                    ? 'border-amber-400 bg-amber-500/10'
+                    : 'border-slate-600 hover:border-amber-500/50 hover:bg-amber-500/5'
+                }`}>
+                  <div className="w-20 h-20 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-5">
+                    <Layers className="w-10 h-10 text-amber-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-200 mb-2">上传现场照片</h3>
+                  <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">
+                    拍摄或选择窗洞位置的照片，系统将把您设计的 <span className="text-amber-400 font-medium">{targetWindow.name}</span> 融合到照片中。
+                  </p>
+
+                  {/* 三个上传按钮 */}
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
+                    {/* 从相册选择 */}
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-orange-400 transition-all w-full sm:w-auto justify-center"
+                    >
+                      <FolderOpen size={16} />
+                      从相册选择
+                    </button>
+
+                    {/* 拍照上传 */}
+                    <button
+                      onClick={() => cameraInputRef.current?.click()}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-[oklch(0.20_0.03_260)] border border-slate-600 text-slate-200 rounded-xl text-sm font-medium hover:bg-[oklch(0.25_0.03_260)] transition-all w-full sm:w-auto justify-center"
+                    >
+                      <Camera size={16} />
+                      拍照上传
+                    </button>
+                  </div>
+
+                  {/* 提示信息 */}
+                  <div className="flex items-center justify-center gap-4 text-xs text-slate-600">
+                    <span>拖拽图片到此处</span>
+                    <span className="text-slate-700">|</span>
+                    <span>Ctrl+V 粘贴截图</span>
+                    <span className="text-slate-700">|</span>
+                    <span>JPG / PNG ≤ 20MB</span>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-600 mt-4">支持 JPG、PNG 格式 | 建议正对窗洞拍摄</p>
+
+                {/* 建议提示 */}
+                <div className="mt-4 bg-[oklch(0.14_0.02_260)] rounded-xl p-4 border border-[oklch(0.22_0.03_260)]">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                    <Info size={12} />
+                    拍摄建议
+                  </h4>
+                  <ul className="text-xs text-slate-500 space-y-1">
+                    <li>• 建议正对窗洞拍摄，避免过大的透视角度</li>
+                    <li>• 保证光线充足，窗洞区域清晰可见</li>
+                    <li>• 尽量包含完整的窗洞和周围墙面</li>
+                  </ul>
+                </div>
+
+                {/* 隐藏的 file input */}
                 <input
-                  id="scene-photo-upload-v2"
                   ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFileSelect}
+                />
+                {/* 拍照专用 input（移动端会调起摄像头） */}
+                <input
+                  ref={cameraInputRef}
                   type="file"
                   accept="image/*"
                   capture="environment"
                   className="sr-only"
-                  onChange={handleFileSelect}
+                  onChange={handleCameraCapture}
                 />
-              </label>
+              </div>
             </div>
           ) : step === 'detecting' ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center">
