@@ -342,7 +342,7 @@ export default function SketchPad({ onClose, onGenerate }: SketchPadProps) {
           </button>
           {recognitionResult ? (
             <button
-              onClick={() => onGenerate(recognitionResult)}
+              onClick={() => { console.log("[SketchPad] Generate button clicked, result:", JSON.stringify(recognitionResult)); onGenerate(recognitionResult); }}
               className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-lg"
             >
               <Download size={14} /> 生成到画布
