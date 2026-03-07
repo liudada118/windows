@@ -85,7 +85,7 @@ export default function DimensionEditOverlay({
         style={{ background: 'transparent' }}
       />
 
-      {/* 编辑弹窗 */}
+      {/* 编辑弹窗 - 蓝色专业风格 */}
       <div
         className="fixed z-50 flex flex-col items-center"
         style={{
@@ -95,10 +95,30 @@ export default function DimensionEditOverlay({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="bg-[oklch(0.18_0.025_260)] border border-amber-500/40 rounded-lg shadow-2xl shadow-black/50 p-2 flex flex-col gap-1.5 min-w-[140px]">
+        <div
+          style={{
+            background: 'rgba(255, 255, 255, 0.97)',
+            border: '1.5px solid #4A90D9',
+            borderRadius: '8px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(74, 144, 217, 0.2)',
+            padding: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            minWidth: '150px',
+          }}
+        >
           {/* 标签 */}
-          <div className="text-[10px] text-amber-400/70 font-mono text-center tracking-wider uppercase">
-            {getLabel()} (mm)
+          <div
+            style={{
+              fontSize: '11px',
+              color: '#4A90D9',
+              fontWeight: 600,
+              textAlign: 'center',
+              letterSpacing: '0.5px',
+            }}
+          >
+            {getLabel()} (MM)
           </div>
 
           {/* 输入框 */}
@@ -108,34 +128,63 @@ export default function DimensionEditOverlay({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full px-2 py-1.5 text-center text-sm font-mono font-bold
-              bg-[oklch(0.12_0.02_260)] border border-amber-500/30 rounded-md
-              text-amber-300 outline-none
-              focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30
-              [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            style={{
+              width: '100%',
+              padding: '6px 8px',
+              textAlign: 'center',
+              fontSize: '16px',
+              fontWeight: 700,
+              fontFamily: 'Arial, sans-serif',
+              background: '#f0f6ff',
+              border: '1.5px solid #4A90D9',
+              borderRadius: '4px',
+              color: '#1a1a1a',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
             min={100}
             max={10000}
             step={1}
           />
 
           {/* 操作按钮 */}
-          <div className="flex gap-1">
+          <div style={{ display: 'flex', gap: '6px' }}>
             <button
               onClick={onCancel}
-              className="flex-1 px-2 py-1 text-[10px] font-mono text-slate-400 bg-slate-700/50 rounded hover:bg-slate-600/50 transition-colors"
+              style={{
+                flex: 1,
+                padding: '5px 8px',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: '#666',
+                background: '#f0f0f0',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              }}
             >
               取消
             </button>
             <button
               onClick={handleConfirm}
-              className="flex-1 px-2 py-1 text-[10px] font-mono text-white bg-amber-600/80 rounded hover:bg-amber-500/80 transition-colors"
+              style={{
+                flex: 1,
+                padding: '5px 8px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#fff',
+                background: '#4A90D9',
+                border: '1px solid #3a7bc8',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              }}
             >
               确认
             </button>
           </div>
 
           {/* 提示 */}
-          <div className="text-[8px] text-slate-500 text-center">
+          <div style={{ fontSize: '9px', color: '#999', textAlign: 'center' }}>
             Enter 确认 / Esc 取消
           </div>
         </div>

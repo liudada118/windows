@@ -1,7 +1,8 @@
 // WindoorDesigner - L3 扇标记渲染组件
 // 渲染 13 种扇类型的 2D 图例标记
+// 包含把手图标（参考专业门窗软件）
 
-import { Group, Line, Circle } from 'react-konva';
+import { Group, Line, Circle, Rect } from 'react-konva';
 import type { Sash, Rect as RectType } from '@windoor/shared';
 import { COLORS } from '@/lib/constants';
 
@@ -12,6 +13,44 @@ interface SashRendererProps {
 }
 
 const MM_TO_PX = 0.5;
+
+/** 渲染把手图标 */
+function HandleIcon({
+  cx, cy, zoom, rotation = 0,
+}: {
+  cx: number;
+  cy: number;
+  zoom: number;
+  rotation?: number;
+}) {
+  const size = Math.max(4, 6 * zoom);
+  const handleColor = '#666666';
+
+  return (
+    <Group x={cx} y={cy} rotation={rotation}>
+      {/* 把手底座 */}
+      <Rect
+        x={-size * 0.3}
+        y={-size * 0.15}
+        width={size * 0.6}
+        height={size * 0.3}
+        fill={handleColor}
+        cornerRadius={1}
+        listening={false}
+      />
+      {/* 把手杆 */}
+      <Rect
+        x={-size * 0.08}
+        y={-size * 0.8}
+        width={size * 0.16}
+        height={size * 0.7}
+        fill={handleColor}
+        cornerRadius={1}
+        listening={false}
+      />
+    </Group>
+  );
+}
 
 /** 渲染扇类型标记 */
 export default function SashRenderer({ sash, zoom, isSelected }: SashRendererProps) {
@@ -50,7 +89,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
         );
 
       case 'casement-left':
-        // 左内开（左侧铰链）- 实线三角形
+        // 左内开（左侧铰链）- 实线三角形 + 把手
         return (
           <Group>
             <Line
@@ -61,11 +100,13 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            {/* 把手在右侧中间 */}
+            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
       case 'casement-right':
-        // 右内开（右侧铰链）- 实线三角形
+        // 右内开（右侧铰链）- 实线三角形 + 把手
         return (
           <Group>
             <Line
@@ -76,6 +117,8 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            {/* 把手在左侧中间 */}
+            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
@@ -92,6 +135,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
@@ -108,11 +152,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
       case 'casement-top':
-        // 上悬（铰链在上）- 实线三角形
+        // 上悬（铰链在上）- 实线三角形 + 把手
         return (
           <Group>
             <Line
@@ -123,11 +168,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w * 0.25} y={y} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w * 0.75} y={y} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + w / 2} cy={y + h - 8 * zoom} zoom={zoom} rotation={90} />
           </Group>
         );
 
       case 'casement-bottom':
-        // 下悬（铰链在下）- 实线三角形
+        // 下悬（铰链在下）- 实线三角形 + 把手
         return (
           <Group>
             <Line
@@ -138,11 +184,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w * 0.25} y={y + h} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w * 0.75} y={y + h} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + w / 2} cy={y + 8 * zoom} zoom={zoom} rotation={90} />
           </Group>
         );
 
       case 'tilt-turn-left':
-        // 左内开内倒 - 实线三角形（平开）+ 虚线三角形（内倒）
+        // 左内开内倒 - 实线三角形（平开）+ 虚线三角形（内倒）+ 把手
         return (
           <Group>
             {/* 平开方向 */}
@@ -162,11 +209,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
       case 'tilt-turn-right':
-        // 右内开内倒 - 实线三角形（平开）+ 虚线三角形（内倒）
+        // 右内开内倒 - 实线三角形（平开）+ 虚线三角形（内倒）+ 把手
         return (
           <Group>
             {/* 平开方向 */}
@@ -186,6 +234,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
+            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
           </Group>
         );
 
