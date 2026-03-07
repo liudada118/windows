@@ -273,7 +273,8 @@ export default function EditorPage() {
 
   // ===== Sketch Recognition: 手绘草图识别生成窗户 =====
   const handleSketchGenerate = useCallback((result: SketchRecognitionResult) => {
-    pushHistory(getSnapshot());
+    console.log('[SketchGenerate] called with result:', JSON.stringify(result));
+    try {  pushHistory(getSnapshot());
 
     // 组合窗识别结果（转角窗/凸窗）
     if (result.compositeType) {
@@ -342,6 +343,11 @@ export default function EditorPage() {
       newWin.name = result.name || '固定窗';
       addWindowUnit(newWin);
       toast.success(`手绘识别成功：已生成 ${result.name || '固定窗'}`);
+    }
+    console.log('[SketchGenerate] completed successfully');
+    } catch (err: any) {
+      console.error('[SketchGenerate] ERROR:', err?.message, err?.stack);
+      toast.error('生成失败: ' + (err?.message || '未知错误'));
     }
     setSketchOpen(false);
   }, [activeProfileSeries, findNonOverlappingPosition, pushHistory, getSnapshot, addWindowUnit, addCompositeWindow]);

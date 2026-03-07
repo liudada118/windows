@@ -91,10 +91,10 @@ export function CompositeTemplateSection({ onAddComposite }: CompositeTemplateSe
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <>
+    <div className="border-y border-cyan-500/20 bg-cyan-500/[0.03]">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider hover:bg-white/5 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-cyan-300 uppercase tracking-wider hover:bg-cyan-500/10 transition-colors"
       >
         <Box size={14} className="text-cyan-400" />
         <span className="flex-1 text-left">组合窗型</span>
@@ -102,22 +102,21 @@ export function CompositeTemplateSection({ onAddComposite }: CompositeTemplateSe
       </button>
       {isOpen && (
         <div className="px-2 pb-2">
-          <div className="grid grid-cols-3 gap-1">
+          <div className="grid grid-cols-3 gap-1.5">
             {COMPOSITE_TEMPLATES.map((tmpl) => (
               <button
                 key={tmpl.id}
                 onClick={() => onAddComposite(tmpl.id)}
-                className="flex flex-col items-center gap-0.5 p-1.5 rounded bg-[oklch(0.20_0.035_260)] hover:bg-[oklch(0.25_0.04_260)] border border-transparent hover:border-cyan-500/30 transition-all group"
+                className="flex flex-col items-center gap-0.5 p-2 rounded bg-[oklch(0.18_0.03_200)] hover:bg-[oklch(0.22_0.04_200)] border border-cyan-500/20 hover:border-cyan-500/40 transition-all group"
               >
                 <span className="text-lg leading-none group-hover:scale-110 transition-transform">{tmpl.icon}</span>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-200 text-center leading-tight">{tmpl.name}</span>
+                <span className="text-[9px] text-cyan-300/70 group-hover:text-cyan-200 text-center leading-tight">{tmpl.name}</span>
               </button>
             ))}
           </div>
         </div>
       )}
-      <div className="h-px bg-[oklch(0.28_0.035_260)]" />
-    </>
+    </div>
   );
 }
 

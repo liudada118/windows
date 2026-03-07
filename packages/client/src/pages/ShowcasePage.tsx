@@ -1,6 +1,7 @@
 // ShowcasePage.tsx - 完整展示界面
 // 提供专业的窗户效果图展示，包括 2D 工程图、材料信息、尺寸标注
 // 支持打印和导出 PDF
+// 支持普通窗和组合窗（U形窗/L形窗/凸窗）
 
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useDesignStore } from '@/stores/designStore';
@@ -8,6 +9,7 @@ import { Stage, Layer, Rect, Line, Text, Group } from 'react-konva';
 import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Maximize2, Grid3X3, FileText } from 'lucide-react';
 import { useLocation } from 'wouter';
 import type { WindowUnit, Opening, Mullion } from '@/lib/types';
+import type { CompositeWindow } from '@windoor/shared';
 import { DEFAULT_PROFILE_SERIES } from '@windoor/shared';
 import { MATERIAL_TYPES, COLOR_PRESETS } from '@/lib/constants';
 
@@ -46,8 +48,22 @@ function collectMullions(opening: Opening, results: Mullion[] = []) {
   return results;
 }
 
-// ===== Window Showcase Card =====
-function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) {
+// ===== Helper: find mullion parent opening =====
+function findMullionParent(opening: Opening, mullionId: string): Opening | null {
+  if (opening.mullions?.some(m => m.id === mullionId)) {
+    return opening;
+  }
+  if (opening.childOpenings) {
+    for (const child of opening.childOpenings) {
+      const found = findMullionParent(child, mullionId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// ===== Window Showcase Card (for single WindowUnit) =====
+function WindowShowcaseCard({ win, index, label }: { win: WindowUnit; index: number; label?: string }) {
   const scale = SHOWCASE_SCALE;
   const series = DEFAULT_PROFILE_SERIES.find(p => p.id === win.profileSeriesId);
   const frameWidth = series?.frameWidth || win.frame.profileWidth || 60;
@@ -56,8 +72,11 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
   const canvasWidth = win.width * scale + PADDING * 2;
   const canvasHeight = win.height * scale + PADDING * 2 + 80; // extra space for labels
 
-  const openings = collectOpenings(win.frame.openings[0]);
-  const mullions = collectMullions(win.frame.openings[0]);
+  const rootOpening = win.frame.openings[0];
+  if (!rootOpening) return null;
+
+  const openings = collectOpenings(rootOpening);
+  const mullions = collectMullions(rootOpening);
 
   // Get color config
   const materialConfig = useDesignStore(s => s.designData.materialConfig);
@@ -74,7 +93,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
       <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-5 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-white font-semibold text-sm">{win.name || `窗户 ${index + 1}`}</h3>
+            <h3 className="text-white font-semibold text-sm">{label || win.name || `窗户 ${index + 1}`}</h3>
             <p className="text-slate-300 text-xs mt-0.5">
               {win.width} x {win.height} mm | {series?.name || '默认型材'}
             </p>
@@ -94,7 +113,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
               x={0}
               y={8}
               width={canvasWidth}
-              text={`${win.name || '窗户'} - 工程图`}
+              text={`${label || win.name || '窗户'} - 工程图`}
               fontSize={TITLE_FONT_SIZE}
               fontFamily="system-ui, sans-serif"
               fill="#334155"
@@ -197,7 +216,7 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
             {/* Mullions */}
             {mullions.map((m, i) => {
               const isVertical = m.type === 'vertical';
-              const parent = findMullionParent(win.frame.openings[0], m.id);
+              const parent = findMullionParent(rootOpening, m.id);
               if (!parent) return null;
               return (
                 <Rect
@@ -290,90 +309,111 @@ function WindowShowcaseCard({ win, index }: { win: WindowUnit; index: number }) 
                 fontStyle="bold"
               />
             </Group>
-
-            {/* Panel dimension lines (bottom) */}
-            {openings.length > 1 && openings.map((op, i) => (
-              <Group key={`dim-${i}`}>
-                <Line
-                  points={[
-                    ox + op.rect.x * scale, oy + win.height * scale + 45,
-                    ox + (op.rect.x + op.rect.width) * scale, oy + win.height * scale + 45,
-                  ]}
-                  stroke="#94a3b8"
-                  strokeWidth={0.5}
-                />
-                <Text
-                  x={ox + op.rect.x * scale}
-                  y={oy + win.height * scale + 50}
-                  width={op.rect.width * scale}
-                  text={`${Math.round(op.rect.width)}`}
-                  fontSize={10}
-                  fontFamily="monospace"
-                  fill="#64748b"
-                  align="center"
-                />
-              </Group>
-            ))}
           </Layer>
         </Stage>
       </div>
+    </div>
+  );
+}
 
-      {/* Material Info */}
-      <div className="px-5 py-3 border-t border-gray-100">
-        <div className="grid grid-cols-2 gap-3 text-xs">
+// ===== Composite Window Showcase Card =====
+function CompositeWindowShowcaseCard({ composite, index }: { composite: CompositeWindow; index: number }) {
+  const typeLabel = composite.type === 'u-shape' ? 'U形窗' :
+    composite.type === 'l-shape' ? 'L形窗' :
+    composite.type === 'bay-window' ? '凸窗/飘窗' : '组合窗';
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+      {/* Composite Header */}
+      <div className="bg-gradient-to-r from-indigo-800 to-indigo-700 px-5 py-3">
+        <div className="flex items-center justify-between">
           <div>
-            <span className="text-gray-400">型材系列</span>
-            <p className="text-gray-700 font-medium">{series?.name || '默认'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">框宽/中梃宽</span>
-            <p className="text-gray-700 font-medium">{frameWidth}mm / {mullionWidth}mm</p>
-          </div>
-          <div>
-            <span className="text-gray-400">分格数量</span>
-            <p className="text-gray-700 font-medium">{openings.length} 格</p>
-          </div>
-          <div>
-            <span className="text-gray-400">开启方式</span>
-            <p className="text-gray-700 font-medium">
-              {openings.some(o => o.hasSash) ? openings.filter(o => o.hasSash).map(o => {
-                switch (o.sashType) {
-                  case 'casement-left': return '内开左';
-                  case 'casement-right': return '内开右';
-                  case 'sliding': return '推拉';
-                  case 'top-hung': return '上悬';
-                  default: return '固定';
-                }
-              }).join(' + ') : '全固定'}
+            <h3 className="text-white font-semibold text-sm">{composite.name || `${typeLabel} ${index + 1}`}</h3>
+            <p className="text-indigo-300 text-xs mt-0.5">
+              {typeLabel} | {composite.panels.length} 个面板
             </p>
           </div>
+          <div className="text-right">
+            <span className="text-amber-400 text-xs font-mono">#{String(index + 1).padStart(2, '0')}</span>
+            <span className="ml-2 text-xs bg-indigo-600 text-indigo-200 px-2 py-0.5 rounded-full">组合窗</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Render each panel */}
+      <div className="p-4 bg-gray-50">
+        <div className="grid grid-cols-1 gap-4">
+          {composite.panels.map((panel, pi) => {
+            const win = panel.windowUnit;
+            if (!win || !win.frame?.openings?.[0]) return null;
+            return (
+              <div key={panel.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600">
+                  {panel.label || `面板 ${pi + 1}`} — {win.width} x {win.height} mm (角度: {panel.angle}°)
+                </div>
+                <WindowShowcaseCard
+                  win={win}
+                  index={pi}
+                  label={`${composite.name || typeLabel} - ${panel.label || `面板 ${pi + 1}`}`}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-// Helper: find parent opening of a mullion
-function findMullionParent(opening: Opening, mullionId: string): Opening | null {
-  if (opening.mullions?.some(m => m.id === mullionId)) return opening;
-  if (opening.childOpenings) {
-    for (const child of opening.childOpenings) {
-      const found = findMullionParent(child, mullionId);
-      if (found) return found;
-    }
-  }
-  return null;
-}
+// ===== Unified display item type =====
+type ShowcaseItem =
+  | { type: 'window'; data: WindowUnit }
+  | { type: 'composite'; data: CompositeWindow };
 
 // ===== Main ShowcasePage =====
 export default function ShowcasePage() {
   const [, navigate] = useLocation();
-  const windows = useDesignStore(s => s.designData.windows);
+  const windows = useDesignStore(s => s.designData.windows) || [];
+  const compositeWindows = useDesignStore(s => s.designData.compositeWindows) || [];
   const materialConfig = useDesignStore(s => s.designData.materialConfig);
   const activeProfileSeries = useDesignStore(s => s.activeProfileSeries);
   const showcaseRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'single'>('grid');
+
+  // Merge all items for display
+  const allItems: ShowcaseItem[] = useMemo(() => {
+    const items: ShowcaseItem[] = [];
+    for (const w of windows) {
+      items.push({ type: 'window', data: w });
+    }
+    for (const cw of compositeWindows) {
+      items.push({ type: 'composite', data: cw });
+    }
+    return items;
+  }, [windows, compositeWindows]);
+
+  // Collect all individual WindowUnits for summary table
+  const allWindowUnits: { win: WindowUnit; label: string }[] = useMemo(() => {
+    const units: { win: WindowUnit; label: string }[] = [];
+    windows.forEach((w, i) => {
+      units.push({ win: w, label: w.name || `窗户 ${i + 1}` });
+    });
+    compositeWindows.forEach((cw) => {
+      const typeLabel = cw.type === 'u-shape' ? 'U形窗' :
+        cw.type === 'l-shape' ? 'L形窗' :
+        cw.type === 'bay-window' ? '凸窗/飘窗' : '组合窗';
+      cw.panels.forEach((panel) => {
+        if (panel.windowUnit) {
+          units.push({
+            win: panel.windowUnit,
+            label: `${cw.name || typeLabel} - ${panel.label || '面板'}`,
+          });
+        }
+      });
+    });
+    return units;
+  }, [windows, compositeWindows]);
 
   const profileInfo = useMemo(() => {
     return DEFAULT_PROFILE_SERIES.find(p => p.id === activeProfileSeries.id) || activeProfileSeries;
@@ -397,7 +437,7 @@ export default function ShowcasePage() {
     }
   }, []);
 
-  if (windows.length === 0) {
+  if (allItems.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -430,7 +470,8 @@ export default function ShowcasePage() {
             <div className="w-px h-6 bg-gray-200" />
             <h1 className="text-lg font-bold text-gray-800">窗户效果图展示</h1>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-              共 {windows.length} 个窗户
+              共 {allItems.length} 个窗户
+              {compositeWindows.length > 0 && ` (含 ${compositeWindows.length} 个组合窗)`}
             </span>
           </div>
 
@@ -504,15 +545,23 @@ export default function ShowcasePage() {
         {viewMode === 'grid' ? (
           /* Grid View */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {windows.map((win, i) => (
-              <WindowShowcaseCard key={win.id} win={win} index={i} />
-            ))}
+            {allItems.map((item, i) => {
+              if (item.type === 'window') {
+                return <WindowShowcaseCard key={item.data.id} win={item.data} index={i} />;
+              } else {
+                return <CompositeWindowShowcaseCard key={item.data.id} composite={item.data} index={i} />;
+              }
+            })}
           </div>
         ) : (
           /* Single View with navigation */
           <div>
-            <WindowShowcaseCard win={windows[currentIndex]} index={currentIndex} />
-            {windows.length > 1 && (
+            {allItems[currentIndex]?.type === 'window' ? (
+              <WindowShowcaseCard win={allItems[currentIndex].data as WindowUnit} index={currentIndex} />
+            ) : allItems[currentIndex]?.type === 'composite' ? (
+              <CompositeWindowShowcaseCard composite={allItems[currentIndex].data as CompositeWindow} index={currentIndex} />
+            ) : null}
+            {allItems.length > 1 && (
               <div className="flex items-center justify-center gap-4 mt-6">
                 <button
                   onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
@@ -522,11 +571,11 @@ export default function ShowcasePage() {
                   <ChevronLeft size={20} />
                 </button>
                 <span className="text-sm text-gray-500 font-medium">
-                  {currentIndex + 1} / {windows.length}
+                  {currentIndex + 1} / {allItems.length}
                 </span>
                 <button
-                  onClick={() => setCurrentIndex(i => Math.min(windows.length - 1, i + 1))}
-                  disabled={currentIndex === windows.length - 1}
+                  onClick={() => setCurrentIndex(i => Math.min(allItems.length - 1, i + 1))}
+                  disabled={currentIndex === allItems.length - 1}
                   className="p-2 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shadow-sm"
                 >
                   <ChevronRight size={20} />
@@ -555,13 +604,15 @@ export default function ShowcasePage() {
                 </tr>
               </thead>
               <tbody>
-                {windows.map((win, i) => {
-                  const openings = collectOpenings(win.frame.openings[0]);
+                {allWindowUnits.map((item, i) => {
+                  const win = item.win;
+                  const rootOp = win.frame?.openings?.[0];
+                  const openings = rootOp ? collectOpenings(rootOp) : [];
                   const area = (win.width * win.height / 1000000).toFixed(2);
                   return (
-                    <tr key={win.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <tr key={win.id + '-' + i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-2.5 font-mono text-gray-500">{i + 1}</td>
-                      <td className="px-4 py-2.5 font-medium text-gray-800">{win.name || `窗户 ${i + 1}`}</td>
+                      <td className="px-4 py-2.5 font-medium text-gray-800">{item.label}</td>
                       <td className="px-4 py-2.5 font-mono text-gray-600">{win.width}</td>
                       <td className="px-4 py-2.5 font-mono text-gray-600">{win.height}</td>
                       <td className="px-4 py-2.5 font-mono text-gray-600">{area}</td>
@@ -575,10 +626,13 @@ export default function ShowcasePage() {
                 <tr className="bg-amber-50">
                   <td colSpan={4} className="px-4 py-2.5 font-semibold text-gray-700">合计</td>
                   <td className="px-4 py-2.5 font-mono font-semibold text-amber-700">
-                    {windows.reduce((sum, w) => sum + w.width * w.height / 1000000, 0).toFixed(2)} m2
+                    {allWindowUnits.reduce((sum, item) => sum + item.win.width * item.win.height / 1000000, 0).toFixed(2)} m2
                   </td>
                   <td className="px-4 py-2.5 font-semibold text-gray-700">
-                    {windows.reduce((sum, w) => sum + collectOpenings(w.frame.openings[0]).length, 0)} 格
+                    {allWindowUnits.reduce((sum, item) => {
+                      const rootOp = item.win.frame?.openings?.[0];
+                      return sum + (rootOp ? collectOpenings(rootOp).length : 0);
+                    }, 0)} 格
                   </td>
                   <td className="px-4 py-2.5"></td>
                 </tr>

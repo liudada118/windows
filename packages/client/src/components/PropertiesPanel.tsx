@@ -452,9 +452,11 @@ export default function PropertiesPanel({
             compositeWindow={selectedCompositeWindow}
             onDelete={onDeleteCompositeWindow}
           />
-          <div className="h-px bg-[oklch(0.28_0.035_260)]" />
         </>
       )}
+
+      {/* 明确的分隔区域 */}
+      <div className="h-[3px] bg-gradient-to-r from-transparent via-[oklch(0.35_0.05_260)] to-transparent my-1" />
 
       {/* Sash Type Selection */}
       <SectionHeader
