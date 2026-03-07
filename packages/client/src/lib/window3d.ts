@@ -1,7 +1,8 @@
-// WindoorDesigner - 3D窗户模型生成器 v2.0
+// WindoorDesigner - 3D窗户模型生成器 v2.1
 // 将2D WindowUnit数据模型转换为Three.js 3D几何体
 // 工业蓝图美学: 铝合金质感框架 + 半透明玻璃
 // v2.0: 支持所有扇类型、使用ProfileSeries的depth参数、修复硬编码
+// v2.1: 修复2D/3D坐标系Y轴翻转问题（2D屏幕坐标Y向下 → 3D世界坐标Y向上）
 
 import * as THREE from 'three';
 import type { WindowUnit, Opening, SashType, ProfileSeries } from './types';
@@ -15,6 +16,18 @@ const HARDWARE_SIZE = 12 * SCALE; // 五金件尺寸
 // 获取ProfileSeries
 function getProfileSeries(profileSeriesId: string): ProfileSeries {
   return DEFAULT_PROFILE_SERIES.find(s => s.id === profileSeriesId) || DEFAULT_PROFILE_SERIES[2];
+}
+
+// Y轴翻转辅助函数：将2D屏幕坐标的Y转换为3D世界坐标的Y
+// 2D: y=0在顶部，向下增长；3D: y=0在底部，向上增长
+// 公式: y3d = windowHeight - y2d - elementHeight
+function flipY(y2d: number, elementHeight: number, windowHeight: number): number {
+  return windowHeight - y2d - elementHeight;
+}
+
+// 翻转中梃位置（水平中梃的position是绝对Y坐标）
+function flipMullionY(position: number, windowHeight: number): number {
+  return windowHeight - position;
 }
 
 // 创建铝合金材质
@@ -50,6 +63,7 @@ function createHardwareMaterial(): THREE.MeshStandardMaterial {
 }
 
 // 创建一个矩形框架截面（挤出体）
+// 注意：外框的坐标从 (0,0) 到 (w,h)，不需要翻转
 function createFrameProfile(
   x: number, y: number, width: number, height: number,
   profileWidth: number, depth: number,
@@ -89,7 +103,8 @@ function createMullionMesh(
   offsetY: number,
   mullionWidth: number,
   mullionDepth: number,
-  material: THREE.Material
+  material: THREE.Material,
+  windowHeight: number
 ): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = [];
   const mw = mullionWidth * SCALE;
@@ -100,15 +115,18 @@ function createMullionMesh(
     let px: number, py: number;
 
     if (mullion.type === 'vertical') {
+      // 竖向中梃：X位置不变，Y位置需要翻转
       const posX = mullion.position * SCALE;
+      const flippedY = flipY(opening.rect.y, opening.rect.height, windowHeight);
       geo = new THREE.BoxGeometry(mw, opening.rect.height * SCALE, md);
       px = offsetX + posX;
-      py = offsetY + opening.rect.y * SCALE + opening.rect.height * SCALE / 2;
+      py = offsetY + flippedY * SCALE + opening.rect.height * SCALE / 2;
     } else {
-      const posY = mullion.position * SCALE;
+      // 水平横档：position是绝对Y坐标，需要翻转
+      const flippedPos = flipMullionY(mullion.position, windowHeight);
       geo = new THREE.BoxGeometry(opening.rect.width * SCALE, mw, md);
       px = offsetX + opening.rect.x * SCALE + opening.rect.width * SCALE / 2;
-      py = offsetY + posY;
+      py = offsetY + flippedPos * SCALE;
     }
 
     const mesh = new THREE.Mesh(geo, material);
@@ -131,7 +149,8 @@ function createSashMesh(
   material: THREE.Material,
   glassMaterial: THREE.Material,
   hardwareMat: THREE.Material,
-  openAngle: number = 0
+  openAngle: number = 0,
+  windowHeight: number = 0
 ): THREE.Group {
   const group = new THREE.Group();
   const sw = (sash.profileWidth || sashWidth) * SCALE;
@@ -140,7 +159,10 @@ function createSashMesh(
   const w = rect.width * SCALE;
   const h = rect.height * SCALE;
 
-  // 扇框架
+  // 翻转Y坐标
+  const flippedY = flipY(rect.y, rect.height, windowHeight);
+
+  // 扇框架（局部坐标，不需要翻转）
   const sashEdges = [
     { px: w / 2, py: h - sw / 2, ew: w, eh: sw },
     { px: w / 2, py: sw / 2, ew: w, eh: sw },
@@ -205,10 +227,10 @@ function createSashMesh(
     group.add(handleMesh);
   }
 
-  // 设置扇的位置
+  // 设置扇的位置（使用翻转后的Y坐标）
   group.position.set(
     offsetX + rect.x * SCALE,
-    offsetY + rect.y * SCALE,
+    offsetY + flippedY * SCALE,
     0
   );
 
@@ -220,7 +242,7 @@ function createSashMesh(
       case 'casement-left':
       case 'tilt-turn-left': {
         // 左开 - 绕左边旋转
-        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(0, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.y = -openAngle;
@@ -229,7 +251,7 @@ function createSashMesh(
       case 'casement-right':
       case 'tilt-turn-right': {
         // 右开 - 绕右边旋转
-        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(-w, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.y = openAngle;
@@ -237,31 +259,31 @@ function createSashMesh(
       }
       case 'casement-out-left': {
         // 外开左 - 绕左边向外旋转
-        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(0, 0, 0);
         pivotGroup.add(group);
-        pivotGroup.rotation.y = openAngle; // 正方向=外开
+        pivotGroup.rotation.y = openAngle;
         return pivotGroup;
       }
       case 'casement-out-right': {
         // 外开右 - 绕右边向外旋转
-        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(-w, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.y = -openAngle;
         return pivotGroup;
       }
       case 'casement-top': {
-        // 上悬 - 绕上边旋转
-        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + (rect.y + rect.height) * SCALE, 0);
+        // 上悬 - 绕上边旋转（翻转后上边在 flippedY + height）
+        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + (flippedY + rect.height) * SCALE, 0);
         group.position.set(0, -h, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.x = openAngle;
         return pivotGroup;
       }
       case 'casement-bottom': {
-        // 下悬 - 绕下边旋转
-        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + rect.y * SCALE, 0);
+        // 下悬 - 绕下边旋转（翻转后下边在 flippedY）
+        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(0, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.x = -openAngle;
@@ -276,15 +298,14 @@ function createSashMesh(
         return group;
       }
       case 'folding-left': {
-        // 折叠 - 绕左边旋转 + 缩放模拟折叠
-        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + rect.x * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(0, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.y = -openAngle * 1.5;
         return pivotGroup;
       }
       case 'folding-right': {
-        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + rect.y * SCALE, 0);
+        pivotGroup.position.set(offsetX + (rect.x + rect.width) * SCALE, offsetY + flippedY * SCALE, 0);
         group.position.set(-w, 0, 0);
         pivotGroup.add(group);
         pivotGroup.rotation.y = openAngle * 1.5;
@@ -305,7 +326,8 @@ function processOpenings(
   aluminumMat: THREE.Material,
   glassMat: THREE.Material,
   hardwareMat: THREE.Material,
-  openAngle: number
+  openAngle: number,
+  windowHeight: number
 ): THREE.Group {
   const group = new THREE.Group();
 
@@ -314,7 +336,8 @@ function processOpenings(
     const mullionMeshes = createMullionMesh(
       opening, offsetX, offsetY,
       series.mullionWidth, series.mullionDepth,
-      aluminumMat
+      aluminumMat,
+      windowHeight
     );
     mullionMeshes.forEach(m => group.add(m));
 
@@ -324,7 +347,8 @@ function processOpenings(
         offsetX, offsetY,
         series,
         aluminumMat, glassMat, hardwareMat,
-        openAngle
+        openAngle,
+        windowHeight
       );
       group.add(childGroup);
     } else {
@@ -334,21 +358,23 @@ function processOpenings(
           offsetX, offsetY,
           series.sashWidth, series.sashDepth,
           aluminumMat, glassMat, hardwareMat,
-          openAngle
+          openAngle,
+          windowHeight
         );
         group.add(sashGroup);
       } else {
-        // 无扇 - 添加纯玻璃
+        // 无扇 - 添加纯玻璃（Y坐标需要翻转）
         const r = opening.rect;
         const glassW = r.width * SCALE;
         const glassH = r.height * SCALE;
         if (glassW > 0 && glassH > 0) {
           const frameDepth = series.frameDepth * SCALE;
+          const flippedY = flipY(r.y, r.height, windowHeight);
           const glassGeo = new THREE.BoxGeometry(glassW, glassH, GLASS_THICKNESS);
           const glassMesh = new THREE.Mesh(glassGeo, glassMat);
           glassMesh.position.set(
             offsetX + r.x * SCALE + glassW / 2,
-            offsetY + r.y * SCALE + glassH / 2,
+            offsetY + flippedY * SCALE + glassH / 2,
             frameDepth / 2
           );
           group.add(glassMesh);
@@ -377,7 +403,7 @@ export function createWindow3D(
   const w = windowUnit.width * SCALE;
   const h = windowUnit.height * SCALE;
 
-  // 外框 - 使用series.frameDepth
+  // 外框 - 使用series.frameDepth（外框坐标不需要翻转）
   const frameMeshes = createFrameProfile(
     0, 0, w, h,
     series.frameWidth,
@@ -386,13 +412,14 @@ export function createWindow3D(
   );
   frameMeshes.forEach(m => group.add(m));
 
-  // 处理分格树
+  // 处理分格树（传入windowHeight用于Y轴翻转）
   const openingsGroup = processOpenings(
     windowUnit.frame.openings,
     0, 0,
     series,
     aluminumMat, glassMat, hardwareMat,
-    openAngle
+    openAngle,
+    windowUnit.height  // 传入窗户总高度（mm）
   );
   group.add(openingsGroup);
 
