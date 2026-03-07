@@ -1,6 +1,6 @@
 # 架构文档 — 画门窗设计器 (WindoorDesigner)
 
-> **文档版本：** V3.3 | **最后更新：** 2026-03-07 | **对齐 PRD 版本：** V5.5 Complete
+> **文档版本：** V3.4 | **最后更新：** 2026-03-07 | **对齐 PRD 版本：** V5.5 Complete
 >
 > 本文档是项目的技术架构单一事实来源，与 `docs/PRD_V5_Complete.md` 保持同步。
 
@@ -71,6 +71,7 @@
 | 状态管理 | **Zustand** (designStore/canvasStore/historyStore) | — | **已完成迁移** |
 | 3D 渲染 | Three.js + R3F + **ThreePreviewV2**（颜色/木纹/爆炸视图） | — | **已增强** |
 | 实景融合 | **ScenePreview V2**（AI门洞检测 + 透视变换 + 多层合成） | — | **已完成** |
+| 3D实景融合 | **SceneFusion3D**（AI窗洞检测 + 自由选择产品 + 3D场景预览） | — | **已完成** |
 | 导出引擎 | **jspdf + dxf-writer + jszip + file-saver** | — | **已完成** |
 | 算料引擎 | **WindoorFormula DSL**（Tokenizer/Parser/Evaluator + Web Worker） | — | **已完成** |
 | 后端 | 无（纯前端静态） | — | **需升级为全栈** |
@@ -266,6 +267,11 @@ EditorPage.tsx (主设计器页面 - 三栏布局)
 ├── sceneFusion.ts (核心引擎：AI门洞检测 + 透视变换 + 图像合成)
 ├── ScenePreview.tsx (前端组件：双模式交互 + 参数调节 + 效果图导出)
 └── 合成管线：原始照片 → 内阴影 → 透视变换叠加 → 边缘羽化 → 色温匹配 → 玻璃反射 → 亮度匹配
+
+3D实景融合引擎
+├── sceneFusion3D.ts (核心服务：AI窗洞检测 + 3D墙面构建 + 门窗模型放置)
+├── SceneFusion3D.tsx (前端组件：步骤引导 + 产品选择 + 3D场景预览)
+└── 3D场景流程：上传照片 → AI检测窗洞 → 选择门窗产品 → 3D墙面+门窗模型场景预览
 
 Zustand Stores (状态管理)
 ├── designStore: 设计数据 + CRUD (BUG-007 修复)
@@ -587,6 +593,9 @@ windoor-designer/
 | 2026-03-07 | ScenePreview V2 组件 | 重写实景融合预览组件：AI自动检测/手动框选双模式、四角透视校正、阴影融合、边缘羽化、色温匹配、玻璃反射、高级参数面板 |
 | 2026-03-07 | 3D门窗截图服务 | captureWindow3DSnapshot：离屏Three.js渲染器，正交相机透明背景截图，支持材质配置 |
 | 2026-03-07 | 3D框架渲染算法修复 | 修复多面板拼接算法：使用链式边缘追踪+绝对角度，支持任意数量面板（2面板L形、3面板U形、5面板凸窗等）正确渲染 |
+| 2026-03-07 | 3D实景融合引擎 (sceneFusion3D.ts) | AI窗洞检测（OpenAI Vision API）+ 3D墙面构建（照片贴图+窗洞挖空）+ 门窗模型放置 + 光照环境 |
+| 2026-03-07 | SceneFusion3D 组件 | 3D实景融合交互组件：四步引导（上传→检测→选产品→预览）、产品选择（模板/已有设计）、多视角切换、光照调节、截图下载 |
+| 2026-03-07 | EditorPage/TopBar 更新 | 新增 scene3d 视图模式（快捷键 5），TopBar/移动端头部添加「3D实景」切换按钮 |
 
 ### 9.2 当前状态评估
 
