@@ -1,7 +1,6 @@
-// SceneFusion3D.tsx — 3D 实景融合组件 V2
-// 方案: 照片作为全屏背景 + 3D门窗模型在窗洞位置精确叠加
-// 使用 FusionRenderer 双场景渲染（背景照片层 + 3D模型层）
-// 支持: 每个窗洞独立选择产品、材质切换、截图下载
+// SceneFusion3D.tsx — 3D 实景融合组件 V3
+// 真正的3D房间场景：照片贴到墙面 + 墙面挖窗洞 + 3D门窗模型 + OrbitControls旋转查看
+// 流程: 上传照片 → AI检测窗洞 → 选择产品 → 3D场景预览（可旋转缩放）
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { WindowUnit } from '@/lib/types';
@@ -10,7 +9,7 @@ import {
   analyzeScene3D,
   mockScene3DAnalysis,
   loadPhotoTexture,
-  FusionRenderer,
+  SceneBuilder,
 } from '@/lib/sceneFusion3D';
 import type {
   WindowOpening,
@@ -24,6 +23,7 @@ import {
   RotateCcw, Settings, Download, Layers,
   Plus, X, Check, Package, Box, Grid3x3,
   Move3d, RefreshCw, ChevronDown, Sun,
+  Eye, EyeOff, RotateCw, Maximize2,
 } from 'lucide-react';
 
 interface SceneFusion3DProps {
@@ -56,6 +56,8 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
   // 3D 状态
   const [is3DReady, setIs3DReady] = useState(false);
   const [lightIntensity, setLightIntensity] = useState(1.0);
+  const [showGrid, setShowGrid] = useState(true);
+  const [currentView, setCurrentView] = useState<string>('front');
 
   // API 设置
   const [apiKey, setApiKey] = useState(getStoredApiKey());
@@ -66,7 +68,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
-  const fusionRef = useRef<FusionRenderer | null>(null);
+  const builderRef = useRef<SceneBuilder | null>(null);
   const animFrameRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -213,42 +215,46 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     setStep('3d-preview');
   }, [products]);
 
-  // ===== 3D 场景初始化（使用 FusionRenderer） =====
+  // ===== 3D 场景初始化（使用 SceneBuilder） =====
   useEffect(() => {
     if (step !== '3d-preview') return;
     const container = containerRef.current;
     if (!container) return;
 
-    let fusion: FusionRenderer;
+    let builder: SceneBuilder;
     try {
-      fusion = new FusionRenderer(container);
-      fusionRef.current = fusion;
-    } catch {
-      toast.error('WebGL 初始化失败');
+      builder = new SceneBuilder(container);
+      builderRef.current = builder;
+    } catch (err: any) {
+      toast.error('WebGL 初始化失败: ' + err.message);
       return;
     }
 
     // 加载照片并构建场景
     const initScene = async () => {
       try {
-        // 1. 加载照片作为背景
+        // 1. 加载照片纹理
         if (photoUrl) {
           const photoTexture = await loadPhotoTexture(photoUrl);
-          fusion.setPhoto(photoTexture);
+          builder.setPhoto(photoTexture);
         }
 
-        // 2. 设置光照
-        fusion.setupLighting(lightIntensity);
+        // 2. 构建墙体（带窗洞）
+        builder.buildWall(openings);
 
         // 3. 在每个窗洞位置放入3D门窗模型
         for (const product of products) {
           if (!product.windowUnit) continue;
           const opening = openings.find(o => o.id === product.openingId);
           if (!opening) continue;
-          fusion.addWindowAtOpening(opening, product.windowUnit, product.materialConfig);
+          builder.addWindowAtOpening(opening, product.windowUnit, product.materialConfig);
         }
 
+        // 4. 设置初始视角
+        builder.setViewAngle('front');
+
         setIs3DReady(true);
+        toast.success('3D 场景构建完成，可拖拽旋转查看');
       } catch (err: any) {
         toast.error(`3D 场景构建失败: ${err.message}`);
       }
@@ -259,36 +265,72 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     // 动画循环
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
-      fusion.render();
+      builder.render();
     };
     animate();
 
     // 窗口大小变化
     const handleResize = () => {
-      fusion.updateLayout();
+      builder.resize();
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animFrameRef.current);
-      fusion.dispose();
-      fusionRef.current = null;
+      builder.dispose();
+      builderRef.current = null;
+      setIs3DReady(false);
     };
-  }, [step, photoUrl, openings, products, lightIntensity]);
+  }, [step]); // 只在进入3d-preview时初始化
+
+  // ===== 光照变化 =====
+  useEffect(() => {
+    if (builderRef.current && is3DReady) {
+      builderRef.current.setupLighting(lightIntensity);
+    }
+  }, [lightIntensity, is3DReady]);
+
+  // ===== 网格显示 =====
+  useEffect(() => {
+    if (builderRef.current && is3DReady) {
+      builderRef.current.toggleGrid(showGrid);
+    }
+  }, [showGrid, is3DReady]);
+
+  // ===== 视角切换 =====
+  const handleViewChange = useCallback((view: 'front' | 'left' | 'right' | 'top' | 'perspective' | 'back') => {
+    if (builderRef.current) {
+      builderRef.current.setViewAngle(view);
+      setCurrentView(view);
+    }
+  }, []);
 
   // ===== 截图 =====
   const handleScreenshot = useCallback(() => {
-    const fusion = fusionRef.current;
-    if (!fusion) return;
+    const builder = builderRef.current;
+    if (!builder) return;
 
-    const dataUrl = fusion.screenshot();
+    const dataUrl = builder.screenshot();
     const link = document.createElement('a');
-    link.download = `实景融合3D_${Date.now()}.png`;
+    link.download = `3D实景融合_${Date.now()}.png`;
     link.href = dataUrl;
     link.click();
     toast.success('截图已下载');
   }, []);
+
+  // ===== 重新开始 =====
+  const handleReset = useCallback(() => {
+    setStep('upload');
+    setPhotoFile(null);
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    setPhotoUrl('');
+    setOpenings([]);
+    setProducts([]);
+    setSelectedOpeningId(null);
+    setSceneDescription('');
+    setIs3DReady(false);
+  }, [photoUrl]);
 
   // ===== 渲染 =====
   const assignedCount = products.filter(p => p.windowUnit !== null).length;
@@ -311,124 +353,92 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
         <button
           onClick={() => setShowApiSettings(!showApiSettings)}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 px-2 py-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
         >
           <Settings size={12} />
           API
         </button>
 
         <button
-          onClick={() => {
-            setStep('upload');
-            setPhotoFile(null);
-            setPhotoUrl('');
-            setOpenings([]);
-            setProducts([]);
-            setIs3DReady(false);
-          }}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          onClick={handleReset}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
         >
           <RotateCcw size={12} />
           重新开始
         </button>
       </div>
 
-      {/* API Key 设置面板 */}
+      {/* API Key 设置 */}
       {showApiSettings && (
-        <div className="px-4 py-3 bg-[oklch(0.13_0.02_260)] border-b border-[oklch(0.20_0.03_260)]">
-          <div className="flex items-center gap-2 max-w-lg">
+        <div className="px-4 py-2 bg-[oklch(0.11_0.02_260)] border-b border-[oklch(0.20_0.03_260)]">
+          <div className="flex items-center gap-2">
             <input
               type="password"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); storeApiKey(e.target.value); }}
               placeholder="输入 OpenAI API Key（留空使用演示模式）"
-              className="flex-1 px-3 py-1.5 bg-[oklch(0.10_0.02_260)] border border-[oklch(0.25_0.03_260)] rounded-lg text-xs text-slate-300 placeholder-slate-600"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                storeApiKey(e.target.value);
+              }}
+              className="flex-1 px-3 py-1.5 bg-[oklch(0.15_0.02_260)] border border-[oklch(0.25_0.03_260)] rounded-lg text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50"
             />
             <button
               onClick={() => setShowApiSettings(false)}
-              className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs"
+              className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300"
             >
-              确定
+              关闭
             </button>
           </div>
-          {!apiKey && (
-            <p className="text-[10px] text-amber-500/70 mt-1">未设置 API Key，将使用演示模式（模拟检测结果）</p>
-          )}
         </div>
       )}
 
       {/* 主内容区 */}
       <div className="flex-1 flex overflow-hidden">
+
         {/* ========== 步骤1: 上传照片 ========== */}
         {step === 'upload' && (
-          <div
-            className="flex-1 flex items-center justify-center p-8"
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false); }}
-            onDrop={handleDrop}
-          >
-            {isDragOver && (
-              <div className="absolute inset-4 border-3 border-dashed border-amber-400 rounded-3xl bg-amber-500/10 flex items-center justify-center z-50 pointer-events-none">
-                <div className="text-center">
-                  <Upload className="w-16 h-16 text-amber-400 mx-auto mb-3 animate-bounce" />
-                  <p className="text-lg font-semibold text-amber-300">松开即可上传</p>
-                </div>
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div
+              className={`w-full max-w-lg rounded-2xl border-2 border-dashed p-10 text-center transition-all ${
+                isDragOver
+                  ? 'border-amber-400 bg-amber-500/10 scale-[1.02]'
+                  : 'border-slate-600 bg-[oklch(0.13_0.02_260)] hover:border-slate-500'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+            >
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+                <Upload size={28} className="text-amber-400" />
               </div>
-            )}
+              <h3 className="text-lg font-semibold text-slate-200 mb-2">上传现场照片</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                拍摄或上传包含窗洞/门洞的照片，AI 将自动识别洞口位置
+              </p>
 
-            <div className="w-full max-w-lg">
-              <div className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all ${
-                isDragOver ? 'border-amber-400 bg-amber-500/10' : 'border-slate-600 hover:border-amber-500/50 hover:bg-amber-500/5'
-              }`}>
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center mx-auto mb-5">
-                  <Move3d className="w-10 h-10 text-amber-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-slate-200 mb-2">3D 实景融合</h3>
-                <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">
-                  上传现场照片，AI 自动检测窗洞，自由选择门窗产品，<span className="text-amber-400 font-medium">3D 门窗模型</span>精确叠加到照片中
-                </p>
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-medium shadow-lg shadow-amber-500/20 hover:from-amber-400 hover:to-orange-400 transition-all w-full sm:w-auto justify-center"
-                  >
-                    <FolderOpen size={16} />
-                    从相册选择
-                  </button>
-                  <button
-                    onClick={() => cameraInputRef.current?.click()}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-[oklch(0.20_0.03_260)] border border-slate-600 text-slate-200 rounded-xl text-sm font-medium hover:bg-[oklch(0.25_0.03_260)] transition-all w-full sm:w-auto justify-center"
-                  >
-                    <Camera size={16} />
-                    拍照上传
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-center gap-4 text-xs text-slate-600">
-                  <span>拖拽图片到此处</span>
-                  <span className="text-slate-700">|</span>
-                  <span>Ctrl+V 粘贴</span>
-                  <span className="text-slate-700">|</span>
-                  <span>JPG / PNG</span>
-                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-400 hover:to-orange-400 transition-all shadow-lg shadow-amber-500/20"
+                >
+                  <FolderOpen size={16} />
+                  选择图片
+                </button>
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 text-slate-200 rounded-xl text-sm font-semibold hover:bg-slate-600 transition-all"
+                >
+                  <Camera size={16} />
+                  拍照
+                </button>
               </div>
 
-              <div className="mt-4 bg-[oklch(0.14_0.02_260)] rounded-xl p-4 border border-[oklch(0.22_0.03_260)]">
-                <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
-                  <Info size={12} />
-                  功能说明
-                </h4>
-                <ul className="text-xs text-slate-500 space-y-1">
-                  <li>1. AI 自动识别照片中的所有窗洞位置</li>
-                  <li>2. 为每个窗洞自由选择不同的门窗产品</li>
-                  <li>3. 3D 门窗模型精确叠加到照片窗洞位置</li>
-                  <li>4. 照片保持原始比例，门窗模型真实渲染</li>
-                </ul>
-              </div>
-
-              <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={handleFileSelect} />
-              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleCameraCapture} />
+              <p className="text-[10px] text-slate-600">
+                支持拖拽上传 / Ctrl+V 粘贴 / JPG、PNG 格式 / 最大 20MB
+              </p>
             </div>
           </div>
         )}
@@ -437,26 +447,12 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
         {step === 'detecting' && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="relative w-48 h-48 mb-6 mx-auto">
-                {photoUrl && (
-                  <img src={photoUrl} alt="" className="w-full h-full rounded-2xl object-cover opacity-50" />
-                )}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-16 h-16 rounded-2xl bg-black/70 flex items-center justify-center backdrop-blur-sm">
-                    <Loader2 size={28} className="text-amber-400 animate-spin" />
-                  </div>
-                </div>
+              <div className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+                <Sparkles size={32} className="text-amber-400 animate-pulse" />
               </div>
-              <h2 className="text-lg font-semibold text-white mb-2">AI 正在分析照片...</h2>
-              <p className="text-sm text-slate-400">正在识别窗洞位置、分析场景信息</p>
-              <div className="mt-4 space-y-1.5">
-                {['扫描墙面结构', '识别窗洞轮廓', '计算窗洞尺寸', '分析光照条件'].map((text, i) => (
-                  <div key={text} className="flex items-center gap-2 text-xs text-slate-500 justify-center">
-                    <div className={`w-1.5 h-1.5 rounded-full ${i < 2 ? 'bg-amber-400' : 'bg-slate-600'} animate-pulse`} />
-                    {text}
-                  </div>
-                ))}
-              </div>
+              <h3 className="text-lg font-semibold text-slate-200 mb-2">AI 正在分析场景...</h3>
+              <p className="text-sm text-slate-500">识别照片中的窗洞位置和尺寸</p>
+              <Loader2 size={20} className="text-amber-400 animate-spin mx-auto mt-4" />
             </div>
           </div>
         )}
@@ -465,36 +461,37 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
         {step === 'assign-products' && (
           <>
             {/* 左侧: 照片预览 + 窗洞标注 */}
-            <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+            <div className="flex-1 flex items-center justify-center p-4 bg-[oklch(0.10_0.02_260)]">
               <div className="relative max-w-full max-h-full">
                 {photoUrl && (
                   <img
                     src={photoUrl}
-                    alt="现场照片"
-                    className="max-w-full max-h-[calc(100vh-120px)] rounded-xl object-contain"
+                    alt="场景照片"
+                    className="max-w-full max-h-[calc(100vh-120px)] object-contain rounded-lg"
                   />
                 )}
                 {/* 窗洞标注覆盖层 */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
                   {openings.map((opening) => {
+                    const { topLeft, bottomRight } = opening.corners;
+                    const x = topLeft.x * 100;
+                    const y = topLeft.y * 100;
+                    const w = (bottomRight.x - topLeft.x) * 100;
+                    const h = (bottomRight.y - topLeft.y) * 100;
+                    const centerX = x + w / 2;
+                    const centerY = y + h / 2;
                     const product = products.find(p => p.openingId === opening.id);
                     const hasProduct = product?.windowUnit !== null;
-                    const isSelected = selectedOpeningId === opening.id;
-
-                    const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
-                    const points = `${topLeft.x * 100}%,${topLeft.y * 100}% ${topRight.x * 100}%,${topRight.y * 100}% ${bottomRight.x * 100}%,${bottomRight.y * 100}% ${bottomLeft.x * 100}%,${bottomLeft.y * 100}%`;
-
-                    const centerX = (topLeft.x + topRight.x + bottomLeft.x + bottomRight.x) / 4 * 100;
-                    const centerY = (topLeft.y + topRight.y + bottomLeft.y + bottomRight.y) / 4 * 100;
 
                     return (
                       <g key={opening.id}>
-                        <polygon
-                          points={points}
-                          fill={hasProduct ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)'}
-                          stroke={isSelected ? '#f59e0b' : hasProduct ? '#f59e0b' : '#64748b'}
-                          strokeWidth={isSelected ? '3' : '2'}
-                          strokeDasharray={hasProduct ? '' : '6 4'}
+                        <rect
+                          x={`${x}%`} y={`${y}%`} width={`${w}%`} height={`${h}%`}
+                          fill={hasProduct ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.1)'}
+                          stroke={hasProduct ? '#f59e0b' : '#64748b'}
+                          strokeWidth="0.5"
+                          strokeDasharray={hasProduct ? 'none' : '2,2'}
+                          rx="0.3"
                           className="pointer-events-auto cursor-pointer"
                           onClick={() => {
                             setSelectedOpeningId(opening.id);
@@ -502,33 +499,25 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                           }}
                         />
                         <text
-                          x={`${centerX}%`}
-                          y={`${centerY - 3}%`}
+                          x={`${centerX}%`} y={`${centerY - 3}%`}
                           textAnchor="middle"
                           fill={hasProduct ? '#f59e0b' : '#94a3b8'}
-                          fontSize="12"
-                          fontWeight="600"
+                          fontSize="3" fontWeight="600"
                         >
                           {opening.label}
                         </text>
                         {hasProduct && (
                           <text
-                            x={`${centerX}%`}
-                            y={`${centerY + 3}%`}
-                            textAnchor="middle"
-                            fill="#fbbf24"
-                            fontSize="10"
+                            x={`${centerX}%`} y={`${centerY + 3}%`}
+                            textAnchor="middle" fill="#fbbf24" fontSize="2.5"
                           >
                             {product?.windowUnit?.name}
                           </text>
                         )}
                         {!hasProduct && (
                           <text
-                            x={`${centerX}%`}
-                            y={`${centerY + 3}%`}
-                            textAnchor="middle"
-                            fill="#64748b"
-                            fontSize="10"
+                            x={`${centerX}%`} y={`${centerY + 3}%`}
+                            textAnchor="middle" fill="#64748b" fontSize="2.5"
                             className="pointer-events-auto cursor-pointer"
                             onClick={() => {
                               setSelectedOpeningId(opening.id);
@@ -664,13 +653,25 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
         {step === '3d-preview' && (
           <>
             {/* 3D 画布 */}
-            <div ref={containerRef} className="flex-1 relative overflow-hidden bg-black">
+            <div ref={containerRef} className="flex-1 relative overflow-hidden bg-[oklch(0.08_0.02_260)]">
               {!is3DReady && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
                   <div className="text-center">
                     <Loader2 size={32} className="text-amber-400 animate-spin mx-auto mb-3" />
                     <p className="text-sm text-slate-400">正在构建 3D 场景...</p>
+                    <p className="text-xs text-slate-600 mt-1">照片映射到墙面 + 窗洞挖空 + 放入门窗模型</p>
                   </div>
+                </div>
+              )}
+
+              {/* 3D 操作提示 */}
+              {is3DReady && (
+                <div className="absolute bottom-4 left-4 flex items-center gap-3 px-3 py-2 bg-black/50 backdrop-blur-sm rounded-lg text-[10px] text-slate-400">
+                  <span>左键拖拽旋转</span>
+                  <span className="text-slate-600">|</span>
+                  <span>滚轮缩放</span>
+                  <span className="text-slate-600">|</span>
+                  <span>右键平移</span>
                 </div>
               )}
             </div>
@@ -701,10 +702,38 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </div>
               </div>
 
-              {/* 光照控制 */}
+              {/* 视角控制 */}
+              <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">视角控制</h4>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { key: 'front', label: '正面' },
+                    { key: 'left', label: '左侧' },
+                    { key: 'right', label: '右侧' },
+                    { key: 'top', label: '俯视' },
+                    { key: 'perspective', label: '透视' },
+                    { key: 'back', label: '背面' },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => handleViewChange(key as any)}
+                      className={`px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all ${
+                        currentView === key
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-[oklch(0.15_0.02_260)] text-slate-500 border border-transparent hover:text-slate-300 hover:bg-[oklch(0.18_0.02_260)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 场景设置 */}
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
                 <h4 className="text-xs font-semibold text-slate-400 mb-2">场景设置</h4>
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {/* 光照强度 */}
                   <div>
                     <div className="flex justify-between text-[10px] mb-1">
                       <span className="text-slate-500 flex items-center gap-1"><Sun size={10} /> 光照强度</span>
@@ -720,16 +749,42 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                       className="w-full h-1 bg-slate-700 rounded-full appearance-none cursor-pointer accent-amber-500"
                     />
                   </div>
+
+                  {/* 网格显示 */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <Grid3x3 size={10} /> 地面网格
+                    </span>
+                    <button
+                      onClick={() => setShowGrid(!showGrid)}
+                      className={`p-1 rounded transition-colors ${showGrid ? 'text-amber-400' : 'text-slate-600'}`}
+                    >
+                      {showGrid ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* 操作说明 */}
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
-                <h4 className="text-xs font-semibold text-slate-400 mb-2">说明</h4>
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">操作说明</h4>
                 <ul className="text-[10px] text-slate-500 space-y-1">
-                  <li>照片作为背景，3D门窗模型叠加在窗洞位置</li>
-                  <li>门窗模型自动缩放适配窗洞大小</li>
-                  <li>可调节光照强度改变门窗亮度</li>
+                  <li className="flex items-start gap-1.5">
+                    <RotateCw size={10} className="shrink-0 mt-0.5" />
+                    <span>鼠标左键拖拽旋转 3D 场景</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Maximize2 size={10} className="shrink-0 mt-0.5" />
+                    <span>滚轮缩放，右键拖拽平移</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Move3d size={10} className="shrink-0 mt-0.5" />
+                    <span>照片贴在墙面上，窗洞位置放入 3D 门窗</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Eye size={10} className="shrink-0 mt-0.5" />
+                    <span>切换视角查看不同角度的安装效果</span>
+                  </li>
                 </ul>
               </div>
 
