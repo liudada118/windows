@@ -5,7 +5,8 @@
 // v2.0: 交互式添加中梃/扇、中梃拖拽、删除功能、边界校验
 // v2.1: 精确数值输入 - 双击尺寸标注弹出输入框、键盘方向键微调中梃
 
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, Suspense } from 'react';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { useEditorStore } from '@/hooks/useEditorStore';
 import CanvasRenderer from '@/components/CanvasRenderer';
 import Toolbar from '@/components/Toolbar';
@@ -37,8 +38,8 @@ import { hitTestDimension, getDimensionScreenPosition, calculateNewMullionPositi
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { Menu, Box, PenTool, Loader2, Camera } from 'lucide-react';
 
-const ThreePreview = lazy(() => import('@/components/ThreePreview'));
-const ScenePreview = lazy(() => import('@/components/ScenePreview'));
+const ThreePreview = lazyWithRetry(() => import('@/components/ThreePreview'));
+const ScenePreview = lazyWithRetry(() => import('@/components/ScenePreview'));
 
 const MM_TO_PX = 0.5;
 

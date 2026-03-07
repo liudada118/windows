@@ -4,7 +4,8 @@
 // 3D预览: Three.js集成，支持2D/3D/实景一键切换
 // 基于 Konva.js 渲染引擎 + Zustand 状态管理
 
-import { useState, useCallback, useRef, useEffect, lazy, Suspense, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, Suspense, useMemo } from 'react';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { useDesignStore } from '@/stores/designStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -40,9 +41,9 @@ import type { SketchRecognitionResult } from '@/components/SketchPad';
 import Konva from 'konva';
 import { useLocation } from 'wouter';
 
-const ThreePreview = lazy(() => import('@/components/ThreePreview'));
-const ScenePreview = lazy(() => import('@/components/ScenePreview'));
-const SceneFusion3D = lazy(() => import('@/components/SceneFusion3D'));
+const ThreePreview = lazyWithRetry(() => import('@/components/ThreePreview'));
+const ScenePreview = lazyWithRetry(() => import('@/components/ScenePreview'));
+const SceneFusion3D = lazyWithRetry(() => import('@/components/SceneFusion3D'));
 
 const MM_TO_PX = 0.5;
 
