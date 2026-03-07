@@ -172,6 +172,35 @@ export interface CompositeWindow {
   viewMode: 'unfold' | 'perspective';
 }
 
+// ===== 画图设置 - 型材尺寸配置 =====
+export interface ProfileDimensions {
+  /** 框宽度 (mm) */
+  frameWidth: number;
+  /** 中梃宽度 (mm) */
+  mullionWidth: number;
+  /** 加强中梃宽度 (mm) */
+  reinforcedMullionWidth: number;
+  /** 扇中梃宽度 (mm) */
+  sashMullionWidth: number;
+  /** 上滑宽度 (mm) */
+  topSlideWidth: number;
+  /** 固上滑宽度 (mm) */
+  fixedTopSlideWidth: number;
+  /** 扇框宽度 (mm) */
+  sashWidth: number;
+  /** 玻璃压线宽度 (mm) */
+  glazingBeadWidth: number;
+}
+
+export interface DrawingSettings {
+  /** 型材尺寸 - 平开/推拉 */
+  casementProfile: ProfileDimensions;
+  /** 是否显示内空尺寸 */
+  showInnerDimensions: boolean;
+  /** 是否显示外框尺寸 */
+  showOuterDimensions: boolean;
+}
+
 // ===== 设计数据 (完整存储单元) =====
 export interface DesignData {
   id: string;
@@ -179,6 +208,7 @@ export interface DesignData {
   windows: WindowUnit[];
   compositeWindows?: CompositeWindow[];
   materialConfig?: MaterialConfig;
+  drawingSettings?: DrawingSettings;
   createdAt: string;
   updatedAt: string;
 }
