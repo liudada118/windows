@@ -1,38 +1,29 @@
-// SceneFusion3D.tsx — 3D 实景融合组件
-// 功能: 上传照片 → AI检测窗洞 → 自由选择产品 → 3D场景预览（照片贴到3D墙面，窗洞放入3D门窗模型）
-// 支持: 旋转/缩放/平移查看、每个窗洞独立选择产品、材质切换
+// SceneFusion3D.tsx — 3D 实景融合组件 V2
+// 方案: 照片作为全屏背景 + 3D门窗模型在窗洞位置精确叠加
+// 使用 FusionRenderer 双场景渲染（背景照片层 + 3D模型层）
+// 支持: 每个窗洞独立选择产品、材质切换、截图下载
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { WindowUnit } from '@/lib/types';
 import { DEFAULT_PROFILE_SERIES } from '@/lib/types';
 import {
   analyzeScene3D,
   mockScene3DAnalysis,
-  buildScene3D,
   loadPhotoTexture,
-  updateOpeningWindow,
-  disposeScene3D,
+  FusionRenderer,
 } from '@/lib/sceneFusion3D';
 import type {
   WindowOpening,
   OpeningProduct,
-  Scene3DConfig,
 } from '@/lib/sceneFusion3D';
 import { WINDOW_TEMPLATES } from '@/lib/window-factory';
 import { fileToBase64 } from '@/lib/photoRecognition';
-import { createWindow3DV2 } from '@/lib/window3d-v2';
-import type { MaterialConfig } from '@/lib/window3d-v2';
-import { SOLID_COLORS, WOOD_GRAINS } from '@/lib/textures';
-import { getAllColorOptions, getAllWoodGrainOptions } from '@/lib/window3d-v2';
 import { toast } from 'sonner';
 import {
-  Upload, Loader2, Camera, FolderOpen, Info, Sparkles, Wand2,
-  RotateCcw, ZoomIn, ZoomOut, Sun, Moon, Eye, EyeOff,
-  ChevronDown, ChevronUp, Settings, Download, Layers,
-  Plus, X, Check, Package, Palette, Box, Grid3x3,
-  Move3d, Maximize2, RefreshCw,
+  Upload, Loader2, Camera, FolderOpen, Info, Sparkles,
+  RotateCcw, Settings, Download, Layers,
+  Plus, X, Check, Package, Box, Grid3x3,
+  Move3d, RefreshCw, ChevronDown, Sun,
 } from 'lucide-react';
 
 interface SceneFusion3DProps {
@@ -64,8 +55,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
   // 3D 状态
   const [is3DReady, setIs3DReady] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [showWireframe, setShowWireframe] = useState(false);
   const [lightIntensity, setLightIntensity] = useState(1.0);
 
   // API 设置
@@ -77,26 +66,10 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
+  const fusionRef = useRef<FusionRenderer | null>(null);
   const animFrameRef = useRef<number>(0);
-  const rootGroupRef = useRef<THREE.Group | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-
-  // 3D 场景配置
-  const sceneConfigRef = useRef<Scene3DConfig>({
-    wallWidth: 4,
-    wallHeight: 3,
-    wallDepth: 0.2,
-    photoTexture: null,
-    openings: [],
-    products: [],
-    lightIntensity: 1.0,
-    ambientIntensity: 0.6,
-  });
 
   // ===== 文件上传 =====
   const loadImageFile = useCallback((file: File) => {
@@ -112,7 +85,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     const url = URL.createObjectURL(file);
     setPhotoUrl(url);
     toast.success('照片已加载');
-    // 自动开始AI检测
     handleAIDetect(file);
   }, []);
 
@@ -165,7 +137,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
         const base64 = await fileToBase64(targetFile);
         result = await analyzeScene3D(base64, apiKey);
       } else {
-        // 演示模式
         await new Promise(r => setTimeout(r, 1500));
         result = mockScene3DAnalysis();
       }
@@ -173,7 +144,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
       setOpenings(result.openings);
       setSceneDescription(result.sceneDescription);
 
-      // 初始化产品绑定（全部为空）
       const initialProducts: OpeningProduct[] = result.openings.map(o => ({
         openingId: o.id,
         windowUnit: null,
@@ -193,14 +163,9 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     const opening = openings.find(o => o.id === openingId);
     if (!opening) return;
 
-    const series = DEFAULT_PROFILE_SERIES[2]; // 默认70系列
-    const windowUnit = template.create(
-      `scene-${openingId}`,
-      0, 0,
-      series,
-    );
+    const series = DEFAULT_PROFILE_SERIES[2];
+    const windowUnit = template.create(`scene-${openingId}`, 0, 0, series);
 
-    // 如果有估算尺寸，调整窗户尺寸
     if (opening.estimatedWidth && opening.estimatedHeight) {
       windowUnit.width = opening.estimatedWidth;
       windowUnit.height = opening.estimatedHeight;
@@ -219,16 +184,13 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     ));
   }, []);
 
-  // 使用已有设计的窗户
-  const handleAssignExistingWindow = useCallback((openingId: string, window: WindowUnit) => {
+  const handleAssignExistingWindow = useCallback((openingId: string, win: WindowUnit) => {
     const opening = openings.find(o => o.id === openingId);
     if (!opening) return;
 
-    // 克隆窗户数据
-    const clonedWindow = JSON.parse(JSON.stringify(window));
+    const clonedWindow = JSON.parse(JSON.stringify(win));
     clonedWindow.id = `scene-${openingId}`;
 
-    // 如果有估算尺寸，调整
     if (opening.estimatedWidth && opening.estimatedHeight) {
       clonedWindow.width = opening.estimatedWidth;
       clonedWindow.height = opening.estimatedHeight;
@@ -238,7 +200,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
       p.openingId === openingId ? { ...p, windowUnit: clonedWindow } : p
     ));
     setShowProductPicker(false);
-    toast.success(`已为 ${opening.label} 添加 ${window.name}`);
+    toast.success(`已为 ${opening.label} 添加 ${win.name}`);
   }, [openings]);
 
   // ===== 进入3D预览 =====
@@ -251,100 +213,40 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     setStep('3d-preview');
   }, [products]);
 
-  // ===== 3D 场景初始化 =====
+  // ===== 3D 场景初始化（使用 FusionRenderer） =====
   useEffect(() => {
     if (step !== '3d-preview') return;
     const container = containerRef.current;
     if (!container) return;
 
-    // 创建场景
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(isDarkMode ? 0x1a1a2e : 0xf0f0f0);
-    sceneRef.current = scene;
-
-    // 相机
-    const camera = new THREE.PerspectiveCamera(
-      45,
-      container.clientWidth / container.clientHeight,
-      0.01,
-      100,
-    );
-    camera.position.set(0, 0, 5);
-    cameraRef.current = camera;
-
-    // 渲染器
-    let renderer: THREE.WebGLRenderer;
+    let fusion: FusionRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: true,
-        powerPreference: 'high-performance',
-      });
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.2;
-      container.appendChild(renderer.domElement);
-      rendererRef.current = renderer;
+      fusion = new FusionRenderer(container);
+      fusionRef.current = fusion;
     } catch {
       toast.error('WebGL 初始化失败');
       return;
     }
 
-    // 轨道控制器
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.minDistance = 1;
-    controls.maxDistance = 20;
-    controls.target.set(0, 0, 0);
-    controlsRef.current = controls;
-
-    // 加载照片纹理并构建场景
+    // 加载照片并构建场景
     const initScene = async () => {
       try {
-        let photoTexture: THREE.Texture | null = null;
+        // 1. 加载照片作为背景
         if (photoUrl) {
-          photoTexture = await loadPhotoTexture(photoUrl);
-          // 根据照片比例计算墙面尺寸
-          const img = photoTexture.image as HTMLImageElement;
-          const aspect = img.width / img.height;
-          const wallHeight = 3;
-          const wallWidth = wallHeight * aspect;
-          sceneConfigRef.current.wallWidth = wallWidth;
-          sceneConfigRef.current.wallHeight = wallHeight;
-          sceneConfigRef.current.photoTexture = photoTexture;
+          const photoTexture = await loadPhotoTexture(photoUrl);
+          fusion.setPhoto(photoTexture);
         }
 
-        sceneConfigRef.current.openings = openings;
-        sceneConfigRef.current.products = products;
-        sceneConfigRef.current.lightIntensity = lightIntensity;
+        // 2. 设置光照
+        fusion.setupLighting(lightIntensity);
 
-        const rootGroup = buildScene3D(scene, sceneConfigRef.current);
-        rootGroupRef.current = rootGroup;
-
-        // 添加地面
-        const groundGeo = new THREE.PlaneGeometry(20, 20);
-        const groundMat = new THREE.MeshStandardMaterial({
-          color: isDarkMode ? 0x2a2a35 : 0xcccccc,
-          roughness: 0.9,
-        });
-        const ground = new THREE.Mesh(groundGeo, groundMat);
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -sceneConfigRef.current.wallHeight / 2 - 0.01;
-        ground.receiveShadow = true;
-        ground.name = 'ground';
-        scene.add(ground);
-
-        // 添加环境贴图
-        const pmremGenerator = new THREE.PMREMGenerator(renderer);
-        const envScene = new THREE.Scene();
-        envScene.background = new THREE.Color(isDarkMode ? 0x1a1a2e : 0x87ceeb);
-        const envMap = pmremGenerator.fromScene(envScene).texture;
-        scene.environment = envMap;
-        pmremGenerator.dispose();
+        // 3. 在每个窗洞位置放入3D门窗模型
+        for (const product of products) {
+          if (!product.windowUnit) continue;
+          const opening = openings.find(o => o.id === product.openingId);
+          if (!opening) continue;
+          fusion.addWindowAtOpening(opening, product.windowUnit, product.materialConfig);
+        }
 
         setIs3DReady(true);
       } catch (err: any) {
@@ -357,48 +259,30 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     // 动画循环
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+      fusion.render();
     };
     animate();
 
     // 窗口大小变化
     const handleResize = () => {
-      if (!container) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      fusion.updateLayout();
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animFrameRef.current);
-      controls.dispose();
-      renderer.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
-      disposeScene3D(scene);
+      fusion.dispose();
+      fusionRef.current = null;
     };
-  }, [step, photoUrl, openings, products, isDarkMode, lightIntensity]);
+  }, [step, photoUrl, openings, products, lightIntensity]);
 
-  // ===== 3D 视角控制 =====
-  const resetCamera = useCallback(() => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    cameraRef.current.position.set(0, 0, 5);
-    controlsRef.current.target.set(0, 0, 0);
-    controlsRef.current.update();
-  }, []);
-
+  // ===== 截图 =====
   const handleScreenshot = useCallback(() => {
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (!renderer || !scene || !camera) return;
+    const fusion = fusionRef.current;
+    if (!fusion) return;
 
-    renderer.render(scene, camera);
-    const dataUrl = renderer.domElement.toDataURL('image/png');
+    const dataUrl = fusion.screenshot();
     const link = document.createElement('a');
     link.download = `实景融合3D_${Date.now()}.png`;
     link.href = dataUrl;
@@ -413,40 +297,18 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     <div className="h-full flex flex-col bg-[oklch(0.12_0.02_260)]">
       {/* 顶部步骤条 */}
       <div className="flex items-center gap-2 px-4 py-2 bg-[oklch(0.14_0.025_260)] border-b border-[oklch(0.20_0.03_260)]">
-        {/* 步骤指示器 */}
         <div className="flex items-center gap-1 text-xs">
-          <StepIndicator
-            number={1}
-            label="上传照片"
-            active={step === 'upload'}
-            done={step !== 'upload'}
-          />
+          <StepIndicator number={1} label="上传照片" active={step === 'upload'} done={step !== 'upload'} />
           <span className="text-slate-600 mx-1">—</span>
-          <StepIndicator
-            number={2}
-            label="AI检测"
-            active={step === 'detecting'}
-            done={step === 'assign-products' || step === '3d-preview'}
-          />
+          <StepIndicator number={2} label="AI检测" active={step === 'detecting'} done={step === 'assign-products' || step === '3d-preview'} />
           <span className="text-slate-600 mx-1">—</span>
-          <StepIndicator
-            number={3}
-            label="选择产品"
-            active={step === 'assign-products'}
-            done={step === '3d-preview'}
-          />
+          <StepIndicator number={3} label="选择产品" active={step === 'assign-products'} done={step === '3d-preview'} />
           <span className="text-slate-600 mx-1">—</span>
-          <StepIndicator
-            number={4}
-            label="3D预览"
-            active={step === '3d-preview'}
-            done={false}
-          />
+          <StepIndicator number={4} label="3D预览" active={step === '3d-preview'} done={false} />
         </div>
 
         <div className="flex-1" />
 
-        {/* API 设置 */}
         <button
           onClick={() => setShowApiSettings(!showApiSettings)}
           className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
@@ -455,7 +317,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
           API
         </button>
 
-        {/* 重新开始 */}
         <button
           onClick={() => {
             setStep('upload');
@@ -524,7 +385,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </div>
                 <h3 className="text-lg font-semibold text-slate-200 mb-2">3D 实景融合</h3>
                 <p className="text-sm text-slate-500 mb-6 max-w-sm mx-auto">
-                  上传现场照片，AI 自动检测窗洞，自由选择门窗产品，在 <span className="text-amber-400 font-medium">3D 场景</span> 中预览安装效果
+                  上传现场照片，AI 自动检测窗洞，自由选择门窗产品，<span className="text-amber-400 font-medium">3D 门窗模型</span>精确叠加到照片中
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
@@ -561,8 +422,8 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 <ul className="text-xs text-slate-500 space-y-1">
                   <li>1. AI 自动识别照片中的所有窗洞位置</li>
                   <li>2. 为每个窗洞自由选择不同的门窗产品</li>
-                  <li>3. 照片映射到 3D 墙面，窗洞中放入 3D 门窗模型</li>
-                  <li>4. 可旋转、缩放、平移查看 3D 效果</li>
+                  <li>3. 3D 门窗模型精确叠加到照片窗洞位置</li>
+                  <li>4. 照片保持原始比例，门窗模型真实渲染</li>
                 </ul>
               </div>
 
@@ -694,7 +555,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </p>
               </div>
 
-              {/* 窗洞列表 */}
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {openings.map((opening) => {
                   const product = products.find(p => p.openingId === opening.id);
@@ -775,7 +635,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 })}
               </div>
 
-              {/* 进入3D预览按钮 */}
               <div className="p-4 border-t border-[oklch(0.20_0.03_260)]">
                 <button
                   onClick={handleEnter3D}
@@ -805,7 +664,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
         {step === '3d-preview' && (
           <>
             {/* 3D 画布 */}
-            <div ref={containerRef} className="flex-1 relative overflow-hidden">
+            <div ref={containerRef} className="flex-1 relative overflow-hidden bg-black">
               {!is3DReady && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
                   <div className="text-center">
@@ -818,7 +677,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
             {/* 右侧控制面板 */}
             <div className="w-72 bg-[oklch(0.13_0.02_260)] border-l border-[oklch(0.20_0.03_260)] overflow-y-auto flex flex-col">
-              {/* 场景信息 */}
               <div className="p-4 border-b border-[oklch(0.20_0.03_260)]">
                 <h3 className="text-sm font-semibold text-slate-200 mb-1">3D 实景预览</h3>
                 <p className="text-xs text-slate-500">{sceneDescription}</p>
@@ -843,41 +701,13 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </div>
               </div>
 
-              {/* 视角控制 */}
-              <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
-                <h4 className="text-xs font-semibold text-slate-400 mb-2">视角控制</h4>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[
-                    { label: '正面', pos: [0, 0, 5] },
-                    { label: '左侧', pos: [-5, 0, 0] },
-                    { label: '右侧', pos: [5, 0, 0] },
-                    { label: '俯视', pos: [0, 5, 2] },
-                    { label: '透视', pos: [3, 2, 4] },
-                    { label: '重置', pos: [0, 0, 5], reset: true },
-                  ].map(({ label, pos, reset }) => (
-                    <button
-                      key={label}
-                      onClick={() => {
-                        if (!cameraRef.current || !controlsRef.current) return;
-                        cameraRef.current.position.set(pos[0], pos[1], pos[2]);
-                        controlsRef.current.target.set(0, 0, 0);
-                        controlsRef.current.update();
-                      }}
-                      className="px-2 py-1.5 bg-[oklch(0.17_0.02_260)] text-slate-400 rounded-lg text-[10px] hover:bg-[oklch(0.22_0.03_260)] hover:text-slate-200 transition-colors"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* 光照控制 */}
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
                 <h4 className="text-xs font-semibold text-slate-400 mb-2">场景设置</h4>
                 <div className="space-y-2">
                   <div>
                     <div className="flex justify-between text-[10px] mb-1">
-                      <span className="text-slate-500">光照强度</span>
+                      <span className="text-slate-500 flex items-center gap-1"><Sun size={10} /> 光照强度</span>
                       <span className="text-slate-400 font-mono">{Math.round(lightIntensity * 100)}%</span>
                     </div>
                     <input
@@ -893,6 +723,16 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </div>
               </div>
 
+              {/* 操作说明 */}
+              <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">说明</h4>
+                <ul className="text-[10px] text-slate-500 space-y-1">
+                  <li>照片作为背景，3D门窗模型叠加在窗洞位置</li>
+                  <li>门窗模型自动缩放适配窗洞大小</li>
+                  <li>可调节光照强度改变门窗亮度</li>
+                </ul>
+              </div>
+
               {/* 操作按钮 */}
               <div className="p-4 mt-auto space-y-2">
                 <button
@@ -903,7 +743,10 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                   下载截图
                 </button>
                 <button
-                  onClick={() => setStep('assign-products')}
+                  onClick={() => {
+                    setIs3DReady(false);
+                    setStep('assign-products');
+                  }}
                   className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600 transition-colors"
                 >
                   <RefreshCw size={12} />
@@ -920,7 +763,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
 // ===== 辅助组件 =====
 
-/** 步骤指示器 */
 function StepIndicator({ number, label, active, done }: {
   number: number;
   label: string;
@@ -941,7 +783,6 @@ function StepIndicator({ number, label, active, done }: {
   );
 }
 
-/** 产品选择弹窗 */
 function ProductPickerModal({
   opening,
   existingWindows,
@@ -963,7 +804,6 @@ function ProductPickerModal({
         className="bg-[oklch(0.14_0.02_260)] rounded-2xl border border-[oklch(0.22_0.03_260)] w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-[oklch(0.20_0.03_260)]">
           <div>
             <h3 className="text-sm font-semibold text-slate-200">选择门窗产品</h3>
@@ -979,7 +819,6 @@ function ProductPickerModal({
           </button>
         </div>
 
-        {/* Tab 切换 */}
         <div className="flex border-b border-[oklch(0.20_0.03_260)]">
           <button
             onClick={() => setTab('templates')}
@@ -1001,7 +840,6 @@ function ProductPickerModal({
           </button>
         </div>
 
-        {/* 内容 */}
         <div className="flex-1 overflow-y-auto p-4">
           {tab === 'templates' ? (
             <div className="grid grid-cols-2 gap-3">
