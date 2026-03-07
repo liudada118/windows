@@ -1,6 +1,6 @@
 // WindoorDesigner - L3 扇标记渲染组件
 // 渲染 13 种扇类型的 2D 图例标记
-// 包含把手图标（参考专业门窗软件）
+// 包含明显的把手图标（参考专业门窗软件）
 
 import { Group, Line, Circle, Rect } from 'react-konva';
 import type { Sash, Rect as RectType } from '@windoor/shared';
@@ -14,38 +14,62 @@ interface SashRendererProps {
 
 const MM_TO_PX = 0.5;
 
-/** 渲染把手图标 */
+/** 渲染把手图标 - 明显的矩形把手 */
 function HandleIcon({
-  cx, cy, zoom, rotation = 0,
+  cx, cy, zoom, rotation = 0, sashWidth, sashHeight,
 }: {
   cx: number;
   cy: number;
   zoom: number;
   rotation?: number;
+  sashWidth: number;
+  sashHeight: number;
 }) {
-  const size = Math.max(4, 6 * zoom);
-  const handleColor = '#666666';
+  // 把手大小根据扇的尺寸自适应
+  const minDim = Math.min(sashWidth, sashHeight);
+  const baseSize = Math.max(8, Math.min(20, minDim * 0.06));
+  const handleColor = '#444444';
+  const handleHighlight = '#666666';
+
+  // 底座宽高
+  const baseW = baseSize * 1.2;
+  const baseH = baseSize * 0.5;
+  // 把手杆
+  const barW = baseSize * 0.25;
+  const barH = baseSize * 2.0;
 
   return (
     <Group x={cx} y={cy} rotation={rotation}>
-      {/* 把手底座 */}
+      {/* 把手底座（矩形） */}
       <Rect
-        x={-size * 0.3}
-        y={-size * 0.15}
-        width={size * 0.6}
-        height={size * 0.3}
+        x={-baseW / 2}
+        y={-baseH / 2}
+        width={baseW}
+        height={baseH}
         fill={handleColor}
+        stroke={handleHighlight}
+        strokeWidth={0.5}
+        cornerRadius={2}
+        listening={false}
+      />
+      {/* 把手杆（向上延伸） */}
+      <Rect
+        x={-barW / 2}
+        y={-baseH / 2 - barH}
+        width={barW}
+        height={barH}
+        fill={handleColor}
+        stroke={handleHighlight}
+        strokeWidth={0.5}
         cornerRadius={1}
         listening={false}
       />
-      {/* 把手杆 */}
-      <Rect
-        x={-size * 0.08}
-        y={-size * 0.8}
-        width={size * 0.16}
-        height={size * 0.7}
-        fill={handleColor}
-        cornerRadius={1}
+      {/* 把手顶端圆点 */}
+      <Circle
+        x={0}
+        y={-baseH / 2 - barH}
+        radius={barW * 0.6}
+        fill={handleHighlight}
         listening={false}
       />
     </Group>
@@ -101,7 +125,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
             {/* 把手在右侧中间 */}
-            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + w - 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -118,12 +142,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
             {/* 把手在左侧中间 */}
-            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
       case 'casement-out-left':
-        // 左外开 - 虚线三角形
+        // 左外开 - 虚线三角形 + 把手
         return (
           <Group>
             <Line
@@ -135,12 +159,12 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + w - 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
       case 'casement-out-right':
-        // 右外开 - 虚线三角形
+        // 右外开 - 虚线三角形 + 把手
         return (
           <Group>
             <Line
@@ -152,7 +176,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -168,7 +192,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w * 0.25} y={y} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w * 0.75} y={y} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + w / 2} cy={y + h - 8 * zoom} zoom={zoom} rotation={90} />
+            <HandleIcon cx={x + w / 2} cy={y + h - 12 * zoom} zoom={zoom} rotation={90} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -184,7 +208,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w * 0.25} y={y + h} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w * 0.75} y={y + h} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + w / 2} cy={y + 8 * zoom} zoom={zoom} rotation={90} />
+            <HandleIcon cx={x + w / 2} cy={y + 12 * zoom} zoom={zoom} rotation={-90} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -209,7 +233,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + w - 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + w - 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -234,7 +258,7 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
             />
             <Circle x={x + w} y={y + h * 0.25} radius={dotR} fill={lineColor} listening={false} />
             <Circle x={x + w} y={y + h * 0.75} radius={dotR} fill={lineColor} listening={false} />
-            <HandleIcon cx={x + 8 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} />
+            <HandleIcon cx={x + 12 * zoom} cy={y + h / 2} zoom={zoom} rotation={0} sashWidth={w} sashHeight={h} />
           </Group>
         );
 
@@ -295,7 +319,6 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
               strokeWidth={lineWidth}
               listening={false}
             />
-            {/* 折叠线 */}
             <Line
               points={[x + w * 0.5, y + h * 0.2, x + w * 0.5, y + h * 0.8]}
               stroke={slidingColor}
@@ -323,7 +346,6 @@ export default function SashRenderer({ sash, zoom, isSelected }: SashRendererPro
               strokeWidth={lineWidth}
               listening={false}
             />
-            {/* 折叠线 */}
             <Line
               points={[x + w * 0.5, y + h * 0.2, x + w * 0.5, y + h * 0.8]}
               stroke={slidingColor}
