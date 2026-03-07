@@ -19,6 +19,8 @@ export type {
   CompositePanel,
   CompositeWindow,
   CompositeWindowType,
+  ProfileDimensions,
+  DrawingSettings,
 } from './design';
 
 export type {

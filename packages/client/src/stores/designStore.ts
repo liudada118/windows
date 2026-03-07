@@ -15,6 +15,7 @@ import type {
   Rect,
   MaterialConfig,
   CompositeWindow,
+  DrawingSettings,
 } from '@windoor/shared';
 import { DEFAULT_PROFILE_SERIES } from '@windoor/shared';
 import { DEFAULT_COLOR_CONFIG, DEFAULT_GLASS } from '@/lib/constants';
@@ -582,6 +583,8 @@ interface DesignStoreActions {
   updateWindow: (windowId: string, updates: Partial<WindowUnit>) => void;
   /** 更新材料配置 */
   updateMaterialConfig: (config: MaterialConfig) => void;
+  /** 更新画图设置 */
+  updateDrawingSettings: (settings: DrawingSettings) => void;
   /** 添加组合窗 */
   addCompositeWindow: (compositeWindow: CompositeWindow) => void;
   /** 删除组合窗 */
@@ -919,6 +922,16 @@ export const useDesignStore = create<DesignStore>((set, get) => ({
       designData: {
         ...state.designData,
         materialConfig: config,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+
+  updateDrawingSettings: (settings) => {
+    set((state) => ({
+      designData: {
+        ...state.designData,
+        drawingSettings: settings,
         updatedAt: new Date().toISOString(),
       },
     }));

@@ -81,7 +81,7 @@ import type { ColorConfig, MaterialConfig } from '@/lib/types';
 /** 预设颜色方案 */
 export const COLOR_PRESETS: { id: string; name: string; colors: ColorConfig }[] = [
   { id: 'white', name: '白色', colors: { frameColor: '#F5F5F5', sashColor: '#F0F0F0', mullionColor: '#E8E8E8', glassColor: '#ADD8E6', glassTint: 0.15 } },
-  { id: 'dark-gray', name: '深灰', colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#87CEEB', glassTint: 0.35 } },
+  { id: 'dark-gray', name: '深灰', colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#87CEEB', glassTint: 0.5 } },
   { id: 'black', name: '黑色', colors: { frameColor: '#1A1A1A', sashColor: '#1A1A1A', mullionColor: '#2A2A2A', glassColor: '#87CEEB', glassTint: 0.25 } },
   { id: 'champagne', name: '香槟色', colors: { frameColor: '#C4A35A', sashColor: '#C4A35A', mullionColor: '#B89B4E', glassColor: '#ADD8E6', glassTint: 0.15 } },
   { id: 'wood-grain', name: '木纹色', colors: { frameColor: '#8B6914', sashColor: '#8B6914', mullionColor: '#7A5C12', glassColor: '#ADD8E6', glassTint: 0.15 } },
@@ -103,7 +103,7 @@ export const MATERIAL_TYPES = [
 export const DEFAULT_MATERIAL_CONFIG: MaterialConfig = {
   name: '断桥铝',
   colorPreset: 'dark-gray',
-  colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#87CEEB', glassTint: 0.35 },
+  colors: { frameColor: '#4A4A4A', sashColor: '#4A4A4A', mullionColor: '#555555', glassColor: '#87CEEB', glassTint: 0.5 },
 };
 
 /** 画布缩放范围 */

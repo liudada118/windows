@@ -32,6 +32,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch, HelpCircle, Move3d } from 'lucide-react';
 import { storageAdapter } from '@/lib/storageAdapter';
 import BOMPanel from '@/components/BOMPanel';
+import DrawingSettingsPanel from '@/components/DrawingSettingsPanel';
 import ExportDialog from '@/components/ExportDialog';
 import VersionManager from '@/components/VersionManager';
 import SketchPad from '@/components/SketchPad';
@@ -98,6 +99,7 @@ export default function EditorPage() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sketchOpen, setSketchOpen] = useState(false);
+  const [drawingSettingsOpen, setDrawingSettingsOpen] = useState(false);
   const stageRef = useRef<Konva.Stage | null>(null);
   const [, navigate] = useLocation();
 
@@ -491,6 +493,7 @@ export default function EditorPage() {
           onOpenSketch={() => setSketchOpen(true)}
           onOpenShowcase={() => navigate('/showcase')}
           onOpenPhoto={() => navigate('/photo')}
+          onOpenDrawingSettings={() => setDrawingSettingsOpen(true)}
         />
       )}
 
@@ -729,6 +732,12 @@ export default function EditorPage() {
           onClose={() => setVersionOpen(false)}
         />
       )}
+
+      {/* 画图设置 */}
+      <DrawingSettingsPanel
+        open={drawingSettingsOpen}
+        onClose={() => setDrawingSettingsOpen(false)}
+      />
 
       {/* 手绘草图识别 */}
       {sketchOpen && (

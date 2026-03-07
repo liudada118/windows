@@ -1,11 +1,12 @@
 // WindoorDesigner - 递归渲染 Opening 树组件
-// 核心递归组件：根据 Opening 数据递归渲染玻璃、中梃、扇标记和分格标签
+// 核心递归组件：根据 Opening 数据递归渲染玻璃、中梃、扇框、扇标记和分格标签
 
 import { Group, Text } from 'react-konva';
 import type { Opening, Sash } from '@windoor/shared';
 import GlassRenderer from './GlassRenderer';
 import MullionRenderer from './MullionRenderer';
 import SashRenderer from './SashRenderer';
+import SashFrameRenderer from './SashFrameRenderer';
 
 interface OpeningRendererProps {
   opening: Opening;
@@ -65,6 +66,12 @@ function getSashDescription(sash: Sash | null): string {
     case 'folding-right': return '折叠右';
     default: return '';
   }
+}
+
+/** 判断是否为开启扇（非固定扇） */
+function isOpenableSash(sash: Sash | null): boolean {
+  if (!sash) return false;
+  return sash.type !== 'fixed';
 }
 
 /** 收集所有叶子节点并按类型分组编号 */
@@ -188,22 +195,35 @@ export default function OpeningRenderer({
     );
   }
 
-  // 叶子节点：渲染玻璃和扇
+  // 叶子节点：渲染玻璃、扇框和扇标记
   const isHovered = hoveredOpeningId === opening.id;
+  const hasSash = isOpenableSash(opening.sash);
+  const sashProfileWidth = opening.sash?.profileWidth || 0;
 
   // 单个分格（无分割）也需要标签
   const singleLabel = getSashLabel(opening.sash) + '1';
 
   return (
     <Group>
-      {/* 渲染玻璃区域 */}
+      {/* 渲染扇框（开启扇才有） */}
+      {hasSash && opening.sash && (
+        <SashFrameRenderer
+          sash={opening.sash}
+          zoom={zoom}
+          isSelected={selectedElementId === opening.sash.id}
+        />
+      )}
+
+      {/* 渲染玻璃区域（含玻璃压线框） */}
       <GlassRenderer
         rect={opening.rect}
         zoom={zoom}
         isHovered={isHovered}
+        hasSashFrame={hasSash}
+        sashProfileWidth={sashProfileWidth}
       />
 
-      {/* 渲染扇标记 */}
+      {/* 渲染扇标记（开启方向线条 + 把手） */}
       {opening.sash && (
         <SashRenderer
           sash={opening.sash}
