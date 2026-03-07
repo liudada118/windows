@@ -262,8 +262,8 @@ export class SceneBuilder {
     this.wallHeight = 3;
     this.wallWidth = this.wallHeight * this.photoAspect;
 
-    // 更新相机
-    const dist = Math.max(this.wallWidth, this.wallHeight) * 1.3;
+    // 更新相机（让照片填满更多视口）
+    const dist = Math.max(this.wallWidth, this.wallHeight) * 1.1;
     this.camera.position.set(0, 0, dist);
     this.controls.target.set(0, 0, 0);
     this.controls.update();
@@ -315,24 +315,23 @@ export class SceneBuilder {
     if (!this.photoTexture) return;
 
     // 简单的平面几何体 + 照片纹理 — 100%可靠
+    // 使用 MeshBasicMaterial 避免光照影响照片原始色彩
     const planeGeo = new THREE.PlaneGeometry(W, H);
-    const planeMat = new THREE.MeshStandardMaterial({
+    const planeMat = new THREE.MeshBasicMaterial({
       map: this.photoTexture,
-      roughness: 0.85,
-      metalness: 0.0,
       side: THREE.FrontSide,
     });
 
     const photoMesh = new THREE.Mesh(planeGeo, planeMat);
     photoMesh.name = 'photo-plane';
     photoMesh.position.set(0, 0, 0); // 正面朝向相机（+Z方向）
-    photoMesh.receiveShadow = true;
+    photoMesh.receiveShadow = false; // 照片平面不接收阴影，保持原始画面
     this.photoGroup.add(photoMesh);
   }
 
   /** Layer 2: 构建墙体立体结构 */
   private buildWallStructure(W: number, H: number, D: number, openings: WindowOpening[]): void {
-    const cementColor = 0x7a7a7a;
+    const cementColor = 0x5a5a5a;
     const cementMat = new THREE.MeshStandardMaterial({
       color: cementColor,
       roughness: 0.95,
@@ -341,7 +340,7 @@ export class SceneBuilder {
     });
 
     const darkCementMat = new THREE.MeshStandardMaterial({
-      color: 0x5a5a5a,
+      color: 0x4a4a4a,
       roughness: 0.95,
       metalness: 0.0,
       side: THREE.DoubleSide,
@@ -357,10 +356,10 @@ export class SceneBuilder {
     // 右边
     this.addBoxSide(W / 2, 0, -D / 2, 0.001, H, D, cementMat, 'wall-right');
 
-    // 背面板（墙体背面，半透明暗色）
+    // 背面板（墙体背面）
     const backGeo = new THREE.PlaneGeometry(W, H);
     const backMat = new THREE.MeshStandardMaterial({
-      color: 0x3a3a3a,
+      color: 0x2a2a2a,
       roughness: 0.95,
       metalness: 0.0,
       side: THREE.DoubleSide,
@@ -456,7 +455,7 @@ export class SceneBuilder {
     this.wallStructGroup.add(rightMesh);
 
     // 窗洞边缘线条（增强视觉轮廓）
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0x444444 });
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.6 });
     const edgePoints = [
       new THREE.Vector3(x1, y1, 0.001),
       new THREE.Vector3(x2, y1, 0.001),
@@ -524,33 +523,44 @@ export class SceneBuilder {
     // 创建3D门窗模型
     const windowGroup = createWindow3DV2(windowUnit, 0, materialConfig);
 
-    // 计算模型包围盒
+    // 强制更新世界矩阵后再计算包围盒
+    windowGroup.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(windowGroup);
     const modelSize = new THREE.Vector3();
     box.getSize(modelSize);
     const modelCenter = new THREE.Vector3();
     box.getCenter(modelCenter);
 
-    // 缩放模型以适配窗洞（留5%边距）
+    // 避免零尺寸
+    if (modelSize.x < 0.001) modelSize.x = 0.001;
+    if (modelSize.y < 0.001) modelSize.y = 0.001;
+
+    // 缩放模型以完全适配窗洞（留2%边距确保不溢出）
     const scaleX = openW / modelSize.x;
     const scaleY = openH / modelSize.y;
-    const scale = Math.min(scaleX, scaleY) * 0.95;
+    const scale = Math.min(scaleX, scaleY) * 0.98;
     windowGroup.scale.set(scale, scale, scale);
+
+    // 重新计算缩放后的包围盒中心（确保精确居中）
+    windowGroup.updateMatrixWorld(true);
+    const scaledBox = new THREE.Box3().setFromObject(windowGroup);
+    const scaledCenter = new THREE.Vector3();
+    scaledBox.getCenter(scaledCenter);
 
     // 创建容器组
     const container = new THREE.Group();
     container.name = oldName;
 
-    // 门窗模型放在墙面正面（z=0），稍微往前偏移避免z-fighting
+    // 将模型中心移到原点
     windowGroup.position.set(
-      -modelCenter.x * scale,
-      -modelCenter.y * scale,
-      0,
+      -scaledCenter.x,
+      -scaledCenter.y,
+      -scaledCenter.z,
     );
     container.add(windowGroup);
 
-    // 容器定位到窗洞中心
-    container.position.set(cx, cy, 0.01);
+    // 容器定位到窗洞中心，z轴稍微往前避免z-fighting
+    container.position.set(cx, cy, 0.02);
 
     this.windowsGroup.add(container);
   }
@@ -642,7 +652,7 @@ export class SceneBuilder {
 
   /** 设置视角 */
   setViewAngle(angle: 'front' | 'left' | 'right' | 'top' | 'perspective' | 'back'): void {
-    const dist = Math.max(this.wallWidth, this.wallHeight) * 1.3;
+    const dist = Math.max(this.wallWidth, this.wallHeight) * 1.1;
 
     switch (angle) {
       case 'front':
