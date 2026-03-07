@@ -510,6 +510,9 @@ export class SceneBuilder {
     const H = this.wallHeight;
     const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
 
+    // 归一化坐标 → 3D世界坐标
+    // 归一化: (0,0)=左上, (1,1)=右下
+    // 3D: 中心在原点, x: [-W/2, W/2], y: [-H/2, H/2]
     const x1 = (Math.min(topLeft.x, bottomLeft.x) - 0.5) * W;
     const x2 = (Math.max(topRight.x, bottomRight.x) - 0.5) * W;
     const y1 = (0.5 - Math.max(bottomLeft.y, bottomRight.y)) * H;
@@ -520,49 +523,50 @@ export class SceneBuilder {
     const cx = (x1 + x2) / 2;
     const cy = (y1 + y2) / 2;
 
-    // 创建3D门窗模型
+    // createWindow3DV2 内部已经做了 group.position.set(-w/2, -h/2, 0) 居中
+    // 模型尺寸单位: mm * 0.001 = m
+    // 所以模型实际尺寸 = windowUnit.width * 0.001 (m)
     const windowGroup = createWindow3DV2(windowUnit, 0, materialConfig);
 
-    // 强制更新世界矩阵后再计算包围盒
-    windowGroup.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(windowGroup);
-    const modelSize = new THREE.Vector3();
-    box.getSize(modelSize);
-    const modelCenter = new THREE.Vector3();
-    box.getCenter(modelCenter);
+    // 模型原始尺寸（单位: m）
+    const modelW = windowUnit.width * 0.001;
+    const modelH = windowUnit.height * 0.001;
 
-    // 避免零尺寸
-    if (modelSize.x < 0.001) modelSize.x = 0.001;
-    if (modelSize.y < 0.001) modelSize.y = 0.001;
-
-    // 缩放模型以完全适配窗洞（留2%边距确保不溢出）
-    const scaleX = openW / modelSize.x;
-    const scaleY = openH / modelSize.y;
+    // 缩放模型以适配窗洞（留2%边距）
+    const scaleX = openW / modelW;
+    const scaleY = openH / modelH;
     const scale = Math.min(scaleX, scaleY) * 0.98;
-    windowGroup.scale.set(scale, scale, scale);
 
-    // 重新计算缩放后的包围盒中心（确保精确居中）
-    windowGroup.updateMatrixWorld(true);
-    const scaledBox = new THREE.Box3().setFromObject(windowGroup);
-    const scaledCenter = new THREE.Vector3();
-    scaledBox.getCenter(scaledCenter);
+    // createWindow3DV2 内部已经做了居中 (position.set(-w/2, -h/2, 0))
+    // 所以模型的几何中心已经在 (0, 0, z_center)
+    // 我们只需要缩放后平移到窗洞中心即可
 
     // 创建容器组
     const container = new THREE.Group();
     container.name = oldName;
-
-    // 将模型中心移到原点
-    windowGroup.position.set(
-      -scaledCenter.x,
-      -scaledCenter.y,
-      -scaledCenter.z,
-    );
     container.add(windowGroup);
+
+    // 对容器整体缩放
+    container.scale.set(scale, scale, scale);
 
     // 容器定位到窗洞中心，z轴稍微往前避免z-fighting
     container.position.set(cx, cy, 0.02);
 
     this.windowsGroup.add(container);
+
+    // 验证: 输出调试信息
+    container.updateMatrixWorld(true);
+    const verifyBox = new THREE.Box3().setFromObject(container);
+    const verifySize = new THREE.Vector3();
+    const verifyCenter = new THREE.Vector3();
+    verifyBox.getSize(verifySize);
+    verifyBox.getCenter(verifyCenter);
+    console.log(`[SceneFusion3D] 窗洞: ${opening.label}`);
+    console.log(`  窗洞位置: cx=${cx.toFixed(3)}, cy=${cy.toFixed(3)}, w=${openW.toFixed(3)}, h=${openH.toFixed(3)}`);
+    console.log(`  模型原始: ${modelW.toFixed(3)} x ${modelH.toFixed(3)} m`);
+    console.log(`  缩放比例: ${scale.toFixed(4)}`);
+    console.log(`  实际尺寸: ${verifySize.x.toFixed(3)} x ${verifySize.y.toFixed(3)} m`);
+    console.log(`  实际中心: ${verifyCenter.x.toFixed(3)}, ${verifyCenter.y.toFixed(3)}, ${verifyCenter.z.toFixed(3)}`);
   }
 
   /** 移除窗洞中的门窗模型 */
@@ -675,7 +679,12 @@ export class SceneBuilder {
         break;
     }
 
-    this.controls.target.set(0, 0, -WALL_DEPTH / 2);
+    // 正面视角看照片平面(z=0)，其他视角看墙体中心
+    if (angle === 'front') {
+      this.controls.target.set(0, 0, 0);
+    } else {
+      this.controls.target.set(0, 0, -WALL_DEPTH / 2);
+    }
     this.controls.update();
   }
 
