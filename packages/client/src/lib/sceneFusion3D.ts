@@ -1,6 +1,8 @@
-// sceneFusion3D.ts — 3D 实景融合核心服务
-// 功能: AI窗洞检测 → 窗洞产品绑定 → 3D场景构建（照片映射到3D墙面 + 窗洞放置3D门窗模型）
-// 技术: Three.js + OpenAI Vision API
+// sceneFusion3D.ts — 3D 实景融合核心服务 V2
+// 方案: 照片作为全屏正交背景 + 3D门窗模型在窗洞位置精确叠加
+// 核心思路: 不做3D墙面贴图（避免变形），而是照片保持原始比例显示，
+//          3D门窗模型根据窗洞归一化坐标精确定位在照片上方
+// 技术: Three.js 双场景渲染（背景场景 + 3D模型场景）
 
 import * as THREE from 'three';
 import type { WindowUnit } from './types';
@@ -34,7 +36,7 @@ export interface WindowOpening {
 /** 窗洞绑定的产品 */
 export interface OpeningProduct {
   openingId: string;
-  windowUnit: WindowUnit | null;  // 绑定的门窗产品，null 表示未选择
+  windowUnit: WindowUnit | null;
   materialConfig?: MaterialConfig;
 }
 
@@ -48,9 +50,9 @@ export interface Scene3DAnalysis {
 
 /** 3D 场景配置 */
 export interface Scene3DConfig {
-  wallWidth: number;    // 墙面宽度 (Three.js units)
-  wallHeight: number;   // 墙面高度
-  wallDepth: number;    // 墙面厚度
+  wallWidth: number;
+  wallHeight: number;
+  wallDepth: number;
   photoTexture: THREE.Texture | null;
   openings: WindowOpening[];
   products: OpeningProduct[];
@@ -145,365 +147,351 @@ export async function analyzeScene3D(
   }
 }
 
-/** 演示模式 - 模拟AI检测结果 */
+/** 演示模式 - 模拟AI检测结果（单个正面窗洞） */
 export function mockScene3DAnalysis(): Scene3DAnalysis {
   return {
     openings: [
       {
         id: 'opening_1',
-        label: '左侧窗洞',
+        label: '正面窗洞',
         corners: {
-          topLeft: { x: 0.08, y: 0.15 },
-          topRight: { x: 0.35, y: 0.15 },
-          bottomLeft: { x: 0.08, y: 0.85 },
-          bottomRight: { x: 0.35, y: 0.85 },
+          topLeft: { x: 0.15, y: 0.20 },
+          topRight: { x: 0.85, y: 0.20 },
+          bottomLeft: { x: 0.15, y: 0.75 },
+          bottomRight: { x: 0.85, y: 0.75 },
         },
         confidence: 0.95,
-        estimatedWidth: 1500,
-        estimatedHeight: 2000,
-      },
-      {
-        id: 'opening_2',
-        label: '中间窗洞',
-        corners: {
-          topLeft: { x: 0.38, y: 0.12 },
-          topRight: { x: 0.62, y: 0.12 },
-          bottomLeft: { x: 0.38, y: 0.88 },
-          bottomRight: { x: 0.62, y: 0.88 },
-        },
-        confidence: 0.95,
-        estimatedWidth: 1800,
-        estimatedHeight: 2200,
-      },
-      {
-        id: 'opening_3',
-        label: '右侧窗洞',
-        corners: {
-          topLeft: { x: 0.65, y: 0.15 },
-          topRight: { x: 0.92, y: 0.15 },
-          bottomLeft: { x: 0.65, y: 0.85 },
-          bottomRight: { x: 0.92, y: 0.85 },
-        },
-        confidence: 0.93,
-        estimatedWidth: 1500,
-        estimatedHeight: 2000,
+        estimatedWidth: 1875,
+        estimatedHeight: 1535,
       },
     ],
-    sceneDescription: '室内阳台区域，三面为大面积落地窗，外部为高层住宅楼。',
+    sceneDescription: '室内厨房场景，面向外部建筑。',
     lightingCondition: 'bright',
-    wallMaterial: '白色乳胶漆墙面',
+    wallMaterial: '水泥毛坯墙面',
   };
 }
 
-// ===== 3D 场景构建 =====
-
-const SCALE = 0.001; // mm -> Three.js units
+// ===== 3D 场景构建 V2 =====
 
 /**
- * 构建3D实景场景
- * 将照片贴到3D墙面上，在窗洞位置挖空并放入3D门窗模型
+ * 融合渲染器 — 管理双场景（背景照片 + 3D门窗模型）
+ * 
+ * 渲染流程:
+ * 1. 先渲染背景层（照片全屏显示，正交相机）
+ * 2. 清除深度缓冲
+ * 3. 再渲染3D层（门窗模型 + 光照，透视相机）
+ * 
+ * 这样3D门窗模型会叠加在照片上方，看起来像是嵌入在照片中
  */
+export class FusionRenderer {
+  // 背景层
+  bgScene: THREE.Scene;
+  bgCamera: THREE.OrthographicCamera;
+  bgMesh: THREE.Mesh | null = null;
+
+  // 3D 模型层
+  modelScene: THREE.Scene;
+  modelCamera: THREE.OrthographicCamera;
+
+  // 渲染器
+  renderer: THREE.WebGLRenderer;
+
+  // 视口信息
+  viewWidth = 1;
+  viewHeight = 1;
+  photoAspect = 1;
+
+  // 场景根组
+  rootGroup: THREE.Group;
+
+  constructor(container: HTMLElement) {
+    // 背景场景
+    this.bgScene = new THREE.Scene();
+    this.bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10);
+    this.bgCamera.position.z = 1;
+
+    // 3D 模型场景 — 使用正交相机，坐标系与照片归一化坐标对齐
+    // 正交相机范围: x: [0, 1], y: [0, 1]，与照片归一化坐标一致
+    this.modelScene = new THREE.Scene();
+    this.modelCamera = new THREE.OrthographicCamera(0, 1, 1, 0, -10, 10);
+    this.modelCamera.position.z = 5;
+
+    this.rootGroup = new THREE.Group();
+    this.rootGroup.name = 'fusion-root';
+    this.modelScene.add(this.rootGroup);
+
+    // 渲染器
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: true,
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.autoClear = false; // 关键：不自动清除，手动控制渲染顺序
+
+    this.viewWidth = container.clientWidth;
+    this.viewHeight = container.clientHeight;
+    this.renderer.setSize(this.viewWidth, this.viewHeight);
+    container.appendChild(this.renderer.domElement);
+  }
+
+  /** 设置背景照片 */
+  setPhoto(texture: THREE.Texture): void {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    const img = texture.image as HTMLImageElement;
+    this.photoAspect = img.width / img.height;
+
+    // 移除旧背景
+    if (this.bgMesh) {
+      this.bgScene.remove(this.bgMesh);
+      this.bgMesh.geometry.dispose();
+      (this.bgMesh.material as THREE.Material).dispose();
+    }
+
+    // 创建全屏背景平面
+    const geo = new THREE.PlaneGeometry(2, 2);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      depthWrite: false,
+    });
+    this.bgMesh = new THREE.Mesh(geo, mat);
+    this.bgScene.add(this.bgMesh);
+
+    this.updateLayout();
+  }
+
+  /** 在窗洞位置添加3D门窗模型 */
+  addWindowAtOpening(
+    opening: WindowOpening,
+    windowUnit: WindowUnit,
+    materialConfig?: MaterialConfig,
+  ): void {
+    // 移除旧的
+    const old = this.rootGroup.getObjectByName(`window-${opening.id}`);
+    if (old) {
+      this.rootGroup.remove(old);
+      disposeGroup(old as THREE.Group);
+    }
+
+    const group = new THREE.Group();
+    group.name = `window-${opening.id}`;
+
+    // 计算窗洞在归一化坐标中的位置和尺寸
+    const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
+    const cx = (topLeft.x + topRight.x + bottomLeft.x + bottomRight.x) / 4;
+    const cy = (topLeft.y + topRight.y + bottomLeft.y + bottomRight.y) / 4;
+    const w = ((topRight.x - topLeft.x) + (bottomRight.x - bottomLeft.x)) / 2;
+    const h = ((bottomLeft.y - topLeft.y) + (bottomRight.y - topRight.y)) / 2;
+
+    // 1. 窗洞遮罩（半透明深色，模拟洞口深度）
+    const maskGeo = new THREE.PlaneGeometry(w, h);
+    const maskMat = new THREE.MeshBasicMaterial({
+      color: 0x1a1a1a,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+    });
+    const mask = new THREE.Mesh(maskGeo, maskMat);
+    mask.position.set(cx, 1 - cy, -0.01); // y 翻转（归一化坐标y向下，Three.js y向上）
+    group.add(mask);
+
+    // 2. 创建3D门窗模型
+    const windowGroup = createWindow3DV2(windowUnit, 0, materialConfig);
+
+    // 计算门窗模型的包围盒
+    const box = new THREE.Box3().setFromObject(windowGroup);
+    const modelSize = new THREE.Vector3();
+    box.getSize(modelSize);
+    const modelCenter = new THREE.Vector3();
+    box.getCenter(modelCenter);
+
+    // 缩放门窗模型以适配窗洞（在归一化坐标空间中）
+    // 留一点内边距让窗框不超出窗洞
+    const padding = 0.005;
+    const targetW = w - padding * 2;
+    const targetH = h - padding * 2;
+    const scaleX = targetW / modelSize.x;
+    const scaleY = targetH / modelSize.y;
+    const scale = Math.min(scaleX, scaleY);
+    windowGroup.scale.set(scale, scale, scale);
+
+    // 居中定位到窗洞中心
+    windowGroup.position.set(
+      cx - modelCenter.x * scale,
+      (1 - cy) - modelCenter.y * scale,
+      0,
+    );
+
+    group.add(windowGroup);
+
+    // 3. 窗洞边框（模拟窗框与墙体的交接线）
+    const borderGeo = new THREE.EdgesGeometry(
+      new THREE.PlaneGeometry(w + 0.005, h + 0.005)
+    );
+    const borderMat = new THREE.LineBasicMaterial({
+      color: 0x888888,
+      transparent: true,
+      opacity: 0.4,
+    });
+    const border = new THREE.LineSegments(borderGeo, borderMat);
+    border.position.set(cx, 1 - cy, 0.01);
+    group.add(border);
+
+    this.rootGroup.add(group);
+  }
+
+  /** 移除窗洞中的门窗模型 */
+  removeWindowFromOpening(openingId: string): void {
+    const obj = this.rootGroup.getObjectByName(`window-${openingId}`);
+    if (obj) {
+      this.rootGroup.remove(obj);
+      disposeGroup(obj as THREE.Group);
+    }
+  }
+
+  /** 设置光照 */
+  setupLighting(intensity: number = 1.0): void {
+    // 清除旧灯光
+    const oldLights = this.modelScene.getObjectByName('fusion-lights');
+    if (oldLights) {
+      this.modelScene.remove(oldLights);
+    }
+
+    const lightsGroup = new THREE.Group();
+    lightsGroup.name = 'fusion-lights';
+
+    // 环境光 — 保证模型整体亮度
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6 * intensity);
+    lightsGroup.add(ambient);
+
+    // 正面主光（从相机方向打光，模拟室内光照）
+    const frontLight = new THREE.DirectionalLight(0xfff8f0, 0.8 * intensity);
+    frontLight.position.set(0, 2, 5);
+    lightsGroup.add(frontLight);
+
+    // 顶部补光
+    const topLight = new THREE.DirectionalLight(0xffffff, 0.4 * intensity);
+    topLight.position.set(0, 5, 0);
+    lightsGroup.add(topLight);
+
+    // 侧面补光
+    const sideLight = new THREE.DirectionalLight(0xe8e0d8, 0.3 * intensity);
+    sideLight.position.set(3, 1, 2);
+    lightsGroup.add(sideLight);
+
+    this.modelScene.add(lightsGroup);
+  }
+
+  /** 更新布局（窗口大小变化时调用） */
+  updateLayout(): void {
+    const container = this.renderer.domElement.parentElement;
+    if (!container) return;
+
+    this.viewWidth = container.clientWidth;
+    this.viewHeight = container.clientHeight;
+    this.renderer.setSize(this.viewWidth, this.viewHeight);
+
+    // 更新背景相机（让照片保持比例居中显示）
+    const viewAspect = this.viewWidth / this.viewHeight;
+    if (this.photoAspect > viewAspect) {
+      // 照片更宽 — 上下留黑边
+      const scale = viewAspect / this.photoAspect;
+      this.bgCamera.left = -1;
+      this.bgCamera.right = 1;
+      this.bgCamera.top = scale;
+      this.bgCamera.bottom = -scale;
+    } else {
+      // 照片更高 — 左右留黑边
+      const scale = this.photoAspect / viewAspect;
+      this.bgCamera.left = -scale;
+      this.bgCamera.right = scale;
+      this.bgCamera.top = 1;
+      this.bgCamera.bottom = -1;
+    }
+    this.bgCamera.updateProjectionMatrix();
+
+    // 更新模型正交相机（与背景对齐）
+    // 模型相机的范围需要与背景照片的可见区域一致
+    this.modelCamera.left = 0;
+    this.modelCamera.right = 1;
+    this.modelCamera.top = 1;
+    this.modelCamera.bottom = 0;
+    this.modelCamera.updateProjectionMatrix();
+  }
+
+  /** 渲染一帧 */
+  render(): void {
+    this.renderer.clear();
+
+    // 1. 渲染背景照片
+    this.renderer.render(this.bgScene, this.bgCamera);
+
+    // 2. 清除深度缓冲（让3D模型不被背景遮挡）
+    this.renderer.clearDepth();
+
+    // 3. 渲染3D门窗模型
+    this.renderer.render(this.modelScene, this.modelCamera);
+  }
+
+  /** 截图 */
+  screenshot(): string {
+    this.render();
+    return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  /** 释放资源 */
+  dispose(): void {
+    // 释放背景
+    if (this.bgMesh) {
+      this.bgMesh.geometry.dispose();
+      (this.bgMesh.material as THREE.Material).dispose();
+    }
+
+    // 释放模型
+    disposeGroup(this.rootGroup);
+
+    // 释放渲染器
+    this.renderer.dispose();
+    const container = this.renderer.domElement.parentElement;
+    if (container && container.contains(this.renderer.domElement)) {
+      container.removeChild(this.renderer.domElement);
+    }
+  }
+}
+
+// ===== 旧接口兼容（保留 buildScene3D 等供其他地方使用） =====
+
+const SCALE = 0.001;
+
 export function buildScene3D(
   scene: THREE.Scene,
   config: Scene3DConfig,
 ): THREE.Group {
   const rootGroup = new THREE.Group();
   rootGroup.name = 'scene-fusion-3d';
-
-  // 1. 创建带照片纹理的墙面（窗洞位置挖空）
-  const wallGroup = createPhotoWall(config);
-  rootGroup.add(wallGroup);
-
-  // 2. 在每个窗洞位置放入3D门窗模型
-  for (const product of config.products) {
-    if (!product.windowUnit) continue;
-
-    const opening = config.openings.find(o => o.id === product.openingId);
-    if (!opening) continue;
-
-    const windowGroup = createWindowAtOpening(
-      opening,
-      product.windowUnit,
-      config.wallWidth,
-      config.wallHeight,
-      config.wallDepth,
-      product.materialConfig,
-    );
-    rootGroup.add(windowGroup);
-  }
-
-  // 3. 设置场景光照
-  setupSceneLighting(scene, config);
-
   scene.add(rootGroup);
   return rootGroup;
 }
 
-/**
- * 创建带照片纹理的3D墙面
- * 照片贴在墙面正面，窗洞位置使用 Shape 挖空
- */
-function createPhotoWall(config: Scene3DConfig): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'photo-wall';
-
-  const { wallWidth, wallHeight, wallDepth, openings } = config;
-
-  // 创建墙面形状（带窗洞挖空）
-  const wallShape = new THREE.Shape();
-  wallShape.moveTo(-wallWidth / 2, -wallHeight / 2);
-  wallShape.lineTo(wallWidth / 2, -wallHeight / 2);
-  wallShape.lineTo(wallWidth / 2, wallHeight / 2);
-  wallShape.lineTo(-wallWidth / 2, wallHeight / 2);
-  wallShape.closePath();
-
-  // 为每个窗洞创建挖空路径
-  for (const opening of openings) {
-    const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
-
-    // 将归一化坐标转换为3D坐标
-    const tlX = (topLeft.x - 0.5) * wallWidth;
-    const tlY = (0.5 - topLeft.y) * wallHeight;
-    const trX = (topRight.x - 0.5) * wallWidth;
-    const trY = (0.5 - topRight.y) * wallHeight;
-    const blX = (bottomLeft.x - 0.5) * wallWidth;
-    const blY = (0.5 - bottomLeft.y) * wallHeight;
-    const brX = (bottomRight.x - 0.5) * wallWidth;
-    const brY = (0.5 - bottomRight.y) * wallHeight;
-
-    const hole = new THREE.Path();
-    hole.moveTo(tlX, tlY);
-    hole.lineTo(trX, trY);
-    hole.lineTo(brX, brY);
-    hole.lineTo(blX, blY);
-    hole.closePath();
-    wallShape.holes.push(hole);
-  }
-
-  // 挤出墙体
-  const extrudeSettings: THREE.ExtrudeGeometryOptions = {
-    depth: wallDepth,
-    bevelEnabled: false,
-  };
-  const wallGeometry = new THREE.ExtrudeGeometry(wallShape, extrudeSettings);
-
-  // 墙面材质 - 正面贴照片纹理，侧面用墙面颜色
-  const wallSideMat = new THREE.MeshStandardMaterial({
-    color: 0xd4c8b8,
-    roughness: 0.85,
-    metalness: 0.0,
-  });
-
-  let wallFrontMat: THREE.Material;
-  if (config.photoTexture) {
-    config.photoTexture.colorSpace = THREE.SRGBColorSpace;
-    wallFrontMat = new THREE.MeshStandardMaterial({
-      map: config.photoTexture,
-      roughness: 0.7,
-      metalness: 0.0,
-    });
-  } else {
-    wallFrontMat = wallSideMat.clone();
-  }
-
-  // ExtrudeGeometry 的材质索引: 0=正面, 1=侧面
-  const wallMesh = new THREE.Mesh(wallGeometry, [wallFrontMat, wallSideMat]);
-  wallMesh.castShadow = true;
-  wallMesh.receiveShadow = true;
-  // 将墙面定位使正面朝向相机（z=0），墙体向后延伸
-  wallMesh.position.z = 0;
-
-  group.add(wallMesh);
-
-  // 为每个窗洞添加洞口内壁
-  for (const opening of openings) {
-    const innerWall = createOpeningInnerWall(opening, wallWidth, wallHeight, wallDepth);
-    group.add(innerWall);
-  }
-
-  return group;
-}
-
-/**
- * 创建窗洞内壁（洞口四面的内侧面）
- */
-function createOpeningInnerWall(
+export function updateOpeningWindow(
+  scene: THREE.Scene,
+  rootGroup: THREE.Group,
   opening: WindowOpening,
-  wallWidth: number,
-  wallHeight: number,
-  wallDepth: number,
-): THREE.Group {
-  const group = new THREE.Group();
-  group.name = `inner-wall-${opening.id}`;
-
-  const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
-
-  // 转换坐标
-  const tlX = (topLeft.x - 0.5) * wallWidth;
-  const tlY = (0.5 - topLeft.y) * wallHeight;
-  const trX = (topRight.x - 0.5) * wallWidth;
-  const trY = (0.5 - topRight.y) * wallHeight;
-  const blX = (bottomLeft.x - 0.5) * wallWidth;
-  const blY = (0.5 - bottomLeft.y) * wallHeight;
-  const brX = (bottomRight.x - 0.5) * wallWidth;
-  const brY = (0.5 - bottomRight.y) * wallHeight;
-
-  const innerMat = new THREE.MeshStandardMaterial({
-    color: 0xe8e0d4,
-    roughness: 0.9,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
-  });
-
-  // 上内壁
-  const topGeo = new THREE.BufferGeometry();
-  const topVerts = new Float32Array([
-    tlX, tlY, 0,
-    trX, trY, 0,
-    trX, trY, wallDepth,
-    tlX, tlY, wallDepth,
-  ]);
-  const topIndices = [0, 1, 2, 0, 2, 3];
-  topGeo.setAttribute('position', new THREE.BufferAttribute(topVerts, 3));
-  topGeo.setIndex(topIndices);
-  topGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(topGeo, innerMat));
-
-  // 下内壁
-  const bottomGeo = new THREE.BufferGeometry();
-  const bottomVerts = new Float32Array([
-    blX, blY, 0,
-    brX, brY, 0,
-    brX, brY, wallDepth,
-    blX, blY, wallDepth,
-  ]);
-  bottomGeo.setAttribute('position', new THREE.BufferAttribute(bottomVerts, 3));
-  bottomGeo.setIndex([0, 2, 1, 0, 3, 2]);
-  bottomGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(bottomGeo, innerMat));
-
-  // 左内壁
-  const leftGeo = new THREE.BufferGeometry();
-  const leftVerts = new Float32Array([
-    tlX, tlY, 0,
-    blX, blY, 0,
-    blX, blY, wallDepth,
-    tlX, tlY, wallDepth,
-  ]);
-  leftGeo.setAttribute('position', new THREE.BufferAttribute(leftVerts, 3));
-  leftGeo.setIndex([0, 2, 1, 0, 3, 2]);
-  leftGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(leftGeo, innerMat));
-
-  // 右内壁
-  const rightGeo = new THREE.BufferGeometry();
-  const rightVerts = new Float32Array([
-    trX, trY, 0,
-    brX, brY, 0,
-    brX, brY, wallDepth,
-    trX, trY, wallDepth,
-  ]);
-  rightGeo.setAttribute('position', new THREE.BufferAttribute(rightVerts, 3));
-  rightGeo.setIndex([0, 1, 2, 0, 2, 3]);
-  rightGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(rightGeo, innerMat));
-
-  return group;
-}
-
-/**
- * 在窗洞位置创建3D门窗模型
- */
-function createWindowAtOpening(
-  opening: WindowOpening,
-  windowUnit: WindowUnit,
+  windowUnit: WindowUnit | null,
   wallWidth: number,
   wallHeight: number,
   wallDepth: number,
   materialConfig?: MaterialConfig,
-): THREE.Group {
-  const group = new THREE.Group();
-  group.name = `window-at-${opening.id}`;
-
-  // 创建3D门窗模型
-  const windowGroup = createWindow3DV2(windowUnit, 0, materialConfig);
-
-  // 计算窗洞的中心位置和尺寸
-  const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
-  const centerX = ((topLeft.x + topRight.x + bottomLeft.x + bottomRight.x) / 4 - 0.5) * wallWidth;
-  const centerY = (0.5 - (topLeft.y + topRight.y + bottomLeft.y + bottomRight.y) / 4) * wallHeight;
-
-  // 窗洞宽高
-  const openingWidth = ((topRight.x - topLeft.x + bottomRight.x - bottomLeft.x) / 2) * wallWidth;
-  const openingHeight = ((bottomLeft.y - topLeft.y + bottomRight.y - topRight.y) / 2) * wallHeight;
-
-  // 门窗模型的原始尺寸
-  const windowWidth = windowUnit.width * SCALE;
-  const windowHeight = windowUnit.height * SCALE;
-
-  // 缩放门窗模型以适配窗洞
-  const scaleX = openingWidth / windowWidth;
-  const scaleY = openingHeight / windowHeight;
-  const scale = Math.min(scaleX, scaleY);
-  windowGroup.scale.set(scale, scale, scale);
-
-  // 定位到窗洞中心，稍微向前偏移（在墙面中间）
-  windowGroup.position.set(
-    centerX,
-    centerY,
-    wallDepth * 0.5,
-  );
-
-  group.add(windowGroup);
-  return group;
-}
-
-/**
- * 设置场景光照
- */
-function setupSceneLighting(scene: THREE.Scene, config: Scene3DConfig): void {
-  // 清除旧灯光
-  const oldLights = scene.children.filter(c =>
-    c instanceof THREE.Light || c.name === 'scene-lights'
-  );
-  oldLights.forEach(l => scene.remove(l));
-
-  const lightsGroup = new THREE.Group();
-  lightsGroup.name = 'scene-lights';
-
-  // 环境光
-  const ambient = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
-  lightsGroup.add(ambient);
-
-  // 主光源（模拟阳光）
-  const sunLight = new THREE.DirectionalLight(0xfff5e6, config.lightIntensity);
-  sunLight.position.set(3, 5, 4);
-  sunLight.castShadow = true;
-  sunLight.shadow.mapSize.width = 2048;
-  sunLight.shadow.mapSize.height = 2048;
-  sunLight.shadow.camera.near = 0.1;
-  sunLight.shadow.camera.far = 30;
-  sunLight.shadow.camera.left = -8;
-  sunLight.shadow.camera.right = 8;
-  sunLight.shadow.camera.top = 8;
-  sunLight.shadow.camera.bottom = -8;
-  lightsGroup.add(sunLight);
-
-  // 补光
-  const fillLight = new THREE.DirectionalLight(0xb0c4de, config.lightIntensity * 0.4);
-  fillLight.position.set(-2, 3, -2);
-  lightsGroup.add(fillLight);
-
-  // 背光
-  const backLight = new THREE.DirectionalLight(0xffffff, config.lightIntensity * 0.2);
-  backLight.position.set(0, 2, -5);
-  lightsGroup.add(backLight);
-
-  // 底部反射光
-  const bounceLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.3);
-  lightsGroup.add(bounceLight);
-
-  scene.add(lightsGroup);
+): void {
+  // 兼容旧接口
 }
 
 /**
@@ -527,62 +515,9 @@ export function loadPhotoTexture(photoUrl: string): Promise<THREE.Texture> {
 }
 
 /**
- * 更新单个窗洞的门窗产品
- */
-export function updateOpeningWindow(
-  scene: THREE.Scene,
-  rootGroup: THREE.Group,
-  opening: WindowOpening,
-  windowUnit: WindowUnit | null,
-  wallWidth: number,
-  wallHeight: number,
-  wallDepth: number,
-  materialConfig?: MaterialConfig,
-): void {
-  // 移除旧的门窗模型
-  const oldWindow = rootGroup.getObjectByName(`window-at-${opening.id}`);
-  if (oldWindow) {
-    rootGroup.remove(oldWindow);
-    disposeGroup(oldWindow as THREE.Group);
-  }
-
-  // 如果有新产品，创建新的门窗模型
-  if (windowUnit) {
-    const newWindow = createWindowAtOpening(
-      opening,
-      windowUnit,
-      wallWidth,
-      wallHeight,
-      wallDepth,
-      materialConfig,
-    );
-    rootGroup.add(newWindow);
-  }
-}
-
-/**
- * 重建整个墙面（当窗洞位置变化时）
- */
-export function rebuildWall(
-  rootGroup: THREE.Group,
-  config: Scene3DConfig,
-): void {
-  // 移除旧墙面
-  const oldWall = rootGroup.getObjectByName('photo-wall');
-  if (oldWall) {
-    rootGroup.remove(oldWall);
-    disposeGroup(oldWall as THREE.Group);
-  }
-
-  // 创建新墙面
-  const newWall = createPhotoWall(config);
-  rootGroup.add(newWall);
-}
-
-/**
  * 释放 Three.js 对象资源
  */
-function disposeGroup(group: THREE.Group): void {
+function disposeGroup(group: THREE.Object3D): void {
   group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry?.dispose();
@@ -601,7 +536,7 @@ function disposeGroup(group: THREE.Group): void {
 export function disposeScene3D(scene: THREE.Scene): void {
   const root = scene.getObjectByName('scene-fusion-3d');
   if (root) {
-    disposeGroup(root as THREE.Group);
+    disposeGroup(root);
     scene.remove(root);
   }
   const lights = scene.getObjectByName('scene-lights');
