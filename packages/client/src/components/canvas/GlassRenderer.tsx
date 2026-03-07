@@ -1,10 +1,9 @@
 // WindoorDesigner - L2 玻璃区域渲染组件
-// 渲染半透明玻璃填充 + 对角交叉线（X）
+// 渲染蓝色半透明玻璃填充（参考专业门窗软件风格）
 // 支持动态颜色配置
 
 import { Group, Rect, Line } from 'react-konva';
 import type { Rect as RectType } from '@windoor/shared';
-import { COLORS } from '@/lib/constants';
 import { useDesignStore } from '@/stores/designStore';
 
 interface GlassRendererProps {
@@ -27,8 +26,8 @@ function hexToRgba(hex: string, alpha: number): string {
 /** 渲染玻璃区域 */
 export default function GlassRenderer({ rect, zoom, isHovered }: GlassRendererProps) {
   const materialConfig = useDesignStore((s) => s.designData.materialConfig);
-  const glassColor = materialConfig?.colors?.glassColor || '#ADD8E6';
-  const glassTint = materialConfig?.colors?.glassTint ?? 0.2;
+  const glassColor = materialConfig?.colors?.glassColor || '#87CEEB';
+  const glassTint = materialConfig?.colors?.glassTint ?? 0.35;
 
   const scale = MM_TO_PX * zoom;
   const x = rect.x * scale;
@@ -36,32 +35,30 @@ export default function GlassRenderer({ rect, zoom, isHovered }: GlassRendererPr
   const w = rect.width * scale;
   const h = rect.height * scale;
 
-  const glassFill = hexToRgba(glassColor, glassTint);
-  const glassCross = hexToRgba(glassColor, glassTint * 0.6);
-  const glassBorder = hexToRgba(glassColor, glassTint * 1.5);
+  // 更饱和的蓝色玻璃效果
+  const glassFill = isHovered
+    ? 'rgba(245, 158, 11, 0.08)'
+    : hexToRgba(glassColor, glassTint);
+  const glassBorder = hexToRgba(glassColor, Math.min(1, glassTint * 2));
 
   return (
     <Group>
-      {/* 玻璃半透明填充 */}
+      {/* 玻璃半透明填充 - 蓝色 */}
       <Rect
         x={x}
         y={y}
         width={w}
         height={h}
-        fill={isHovered ? 'rgba(245, 158, 11, 0.08)' : glassFill}
+        fill={glassFill}
       />
 
-      {/* 对角交叉线 (X) */}
-      <Line
-        points={[x, y, x + w, y + h]}
-        stroke={glassCross}
-        strokeWidth={0.5}
-        listening={false}
-      />
-      <Line
-        points={[x + w, y, x, y + h]}
-        stroke={glassCross}
-        strokeWidth={0.5}
+      {/* 玻璃内部高光效果 */}
+      <Rect
+        x={x + 2}
+        y={y + 2}
+        width={Math.max(0, w - 4)}
+        height={Math.max(0, h - 4)}
+        fill="rgba(255, 255, 255, 0.06)"
         listening={false}
       />
 
@@ -72,7 +69,7 @@ export default function GlassRenderer({ rect, zoom, isHovered }: GlassRendererPr
         width={w}
         height={h}
         stroke={glassBorder}
-        strokeWidth={0.5}
+        strokeWidth={0.8}
         listening={false}
       />
     </Group>
