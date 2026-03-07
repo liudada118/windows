@@ -1,6 +1,7 @@
-// SceneFusion3D.tsx — 3D 实景融合组件 V3
-// 真正的3D房间场景：照片贴到墙面 + 墙面挖窗洞 + 3D门窗模型 + OrbitControls旋转查看
-// 流程: 上传照片 → AI检测窗洞 → 选择产品 → 3D场景预览（可旋转缩放）
+// SceneFusion3D.tsx — 3D 实景融合组件 V4
+// 分层构建法：照片平面 + 立体窗洞 + 3D门窗模型
+// 流程: 上传照片 → AI检测窗洞 → 调节窗洞+选择产品 → 3D场景预览
+// 新增: 窗洞可拖拽调节大小和位置
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { WindowUnit } from '@/lib/types';
@@ -19,11 +20,12 @@ import { WINDOW_TEMPLATES } from '@/lib/window-factory';
 import { fileToBase64 } from '@/lib/photoRecognition';
 import { toast } from 'sonner';
 import {
-  Upload, Loader2, Camera, FolderOpen, Info, Sparkles,
+  Upload, Loader2, Camera, FolderOpen, Sparkles,
   RotateCcw, Settings, Download, Layers,
   Plus, X, Check, Package, Box, Grid3x3,
   Move3d, RefreshCw, ChevronDown, Sun,
   Eye, EyeOff, RotateCw, Maximize2,
+  Move, GripHorizontal,
 } from 'lucide-react';
 
 interface SceneFusion3DProps {
@@ -65,6 +67,14 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 
   // 拖拽上传
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // 窗洞拖拽调节
+  const [draggingHandle, setDraggingHandle] = useState<{
+    openingId: string;
+    handleType: 'move' | 'tl' | 'tr' | 'bl' | 'br' | 'top' | 'bottom' | 'left' | 'right';
+  } | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; corners: WindowOpening['corners'] } | null>(null);
+  const imgContainerRef = useRef<HTMLDivElement>(null);
 
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -160,6 +170,117 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     }
   }, [photoFile, apiKey]);
 
+  // ===== 窗洞拖拽调节 =====
+  const handleOpeningDragStart = useCallback((
+    e: React.MouseEvent | React.TouchEvent,
+    openingId: string,
+    handleType: typeof draggingHandle extends null ? never : NonNullable<typeof draggingHandle>['handleType'],
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const opening = openings.find(o => o.id === openingId);
+    if (!opening) return;
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    setDraggingHandle({ openingId, handleType });
+    dragStartRef.current = {
+      x: clientX,
+      y: clientY,
+      corners: JSON.parse(JSON.stringify(opening.corners)),
+    };
+  }, [openings]);
+
+  useEffect(() => {
+    if (!draggingHandle) return;
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!dragStartRef.current || !imgContainerRef.current) return;
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      const rect = imgContainerRef.current.getBoundingClientRect();
+      const dx = (clientX - dragStartRef.current.x) / rect.width;
+      const dy = (clientY - dragStartRef.current.y) / rect.height;
+
+      const orig = dragStartRef.current.corners;
+      const { handleType, openingId } = draggingHandle;
+
+      setOpenings(prev => prev.map(o => {
+        if (o.id !== openingId) return o;
+
+        const c = JSON.parse(JSON.stringify(orig));
+        const clamp = (v: number) => Math.max(0.02, Math.min(0.98, v));
+
+        if (handleType === 'move') {
+          // 整体移动
+          c.topLeft.x = clamp(c.topLeft.x + dx);
+          c.topLeft.y = clamp(c.topLeft.y + dy);
+          c.topRight.x = clamp(c.topRight.x + dx);
+          c.topRight.y = clamp(c.topRight.y + dy);
+          c.bottomLeft.x = clamp(c.bottomLeft.x + dx);
+          c.bottomLeft.y = clamp(c.bottomLeft.y + dy);
+          c.bottomRight.x = clamp(c.bottomRight.x + dx);
+          c.bottomRight.y = clamp(c.bottomRight.y + dy);
+        } else if (handleType === 'tl') {
+          c.topLeft.x = clamp(c.topLeft.x + dx);
+          c.topLeft.y = clamp(c.topLeft.y + dy);
+          c.bottomLeft.x = clamp(c.bottomLeft.x + dx);
+          c.topRight.y = clamp(c.topRight.y + dy);
+        } else if (handleType === 'tr') {
+          c.topRight.x = clamp(c.topRight.x + dx);
+          c.topRight.y = clamp(c.topRight.y + dy);
+          c.bottomRight.x = clamp(c.bottomRight.x + dx);
+          c.topLeft.y = clamp(c.topLeft.y + dy);
+        } else if (handleType === 'bl') {
+          c.bottomLeft.x = clamp(c.bottomLeft.x + dx);
+          c.bottomLeft.y = clamp(c.bottomLeft.y + dy);
+          c.topLeft.x = clamp(c.topLeft.x + dx);
+          c.bottomRight.y = clamp(c.bottomRight.y + dy);
+        } else if (handleType === 'br') {
+          c.bottomRight.x = clamp(c.bottomRight.x + dx);
+          c.bottomRight.y = clamp(c.bottomRight.y + dy);
+          c.topRight.x = clamp(c.topRight.x + dx);
+          c.bottomLeft.y = clamp(c.bottomLeft.y + dy);
+        } else if (handleType === 'top') {
+          c.topLeft.y = clamp(c.topLeft.y + dy);
+          c.topRight.y = clamp(c.topRight.y + dy);
+        } else if (handleType === 'bottom') {
+          c.bottomLeft.y = clamp(c.bottomLeft.y + dy);
+          c.bottomRight.y = clamp(c.bottomRight.y + dy);
+        } else if (handleType === 'left') {
+          c.topLeft.x = clamp(c.topLeft.x + dx);
+          c.bottomLeft.x = clamp(c.bottomLeft.x + dx);
+        } else if (handleType === 'right') {
+          c.topRight.x = clamp(c.topRight.x + dx);
+          c.bottomRight.x = clamp(c.bottomRight.x + dx);
+        }
+
+        return { ...o, corners: c };
+      }));
+    };
+
+    const handleEnd = () => {
+      setDraggingHandle(null);
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('touchend', handleEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [draggingHandle]);
+
   // ===== 产品选择 =====
   const handleAssignProduct = useCallback((openingId: string, template: typeof WINDOW_TEMPLATES[0]) => {
     const opening = openings.find(o => o.id === openingId);
@@ -215,7 +336,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     setStep('3d-preview');
   }, [products]);
 
-  // ===== 3D 场景初始化（使用 SceneBuilder） =====
+  // ===== 3D 场景初始化 =====
   useEffect(() => {
     if (step !== '3d-preview') return;
     const container = containerRef.current;
@@ -230,7 +351,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
       return;
     }
 
-    // 加载照片并构建场景
     const initScene = async () => {
       try {
         // 1. 加载照片纹理
@@ -239,18 +359,10 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
           builder.setPhoto(photoTexture);
         }
 
-        // 2. 构建墙体（带窗洞）
-        builder.buildWall(openings);
+        // 2. 构建完整场景（照片平面 + 墙体结构 + 门窗模型）
+        builder.buildScene(openings, products);
 
-        // 3. 在每个窗洞位置放入3D门窗模型
-        for (const product of products) {
-          if (!product.windowUnit) continue;
-          const opening = openings.find(o => o.id === product.openingId);
-          if (!opening) continue;
-          builder.addWindowAtOpening(opening, product.windowUnit, product.materialConfig);
-        }
-
-        // 4. 设置初始视角
+        // 3. 设置初始视角
         builder.setViewAngle('front');
 
         setIs3DReady(true);
@@ -269,10 +381,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
     };
     animate();
 
-    // 窗口大小变化
-    const handleResize = () => {
-      builder.resize();
-    };
+    const handleResize = () => builder.resize();
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -282,7 +391,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
       builderRef.current = null;
       setIs3DReady(false);
     };
-  }, [step]); // 只在进入3d-preview时初始化
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ===== 光照变化 =====
   useEffect(() => {
@@ -310,7 +419,6 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
   const handleScreenshot = useCallback(() => {
     const builder = builderRef.current;
     if (!builder) return;
-
     const dataUrl = builder.screenshot();
     const link = document.createElement('a');
     link.download = `3D实景融合_${Date.now()}.png`;
@@ -344,7 +452,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
           <span className="text-slate-600 mx-1">—</span>
           <StepIndicator number={2} label="AI检测" active={step === 'detecting'} done={step === 'assign-products' || step === '3d-preview'} />
           <span className="text-slate-600 mx-1">—</span>
-          <StepIndicator number={3} label="选择产品" active={step === 'assign-products'} done={step === '3d-preview'} />
+          <StepIndicator number={3} label="调节窗洞 / 选择产品" active={step === 'assign-products'} done={step === '3d-preview'} />
           <span className="text-slate-600 mx-1">—</span>
           <StepIndicator number={4} label="3D预览" active={step === '3d-preview'} done={false} />
         </div>
@@ -376,18 +484,10 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
               type="password"
               placeholder="输入 OpenAI API Key（留空使用演示模式）"
               value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                storeApiKey(e.target.value);
-              }}
+              onChange={(e) => { setApiKey(e.target.value); storeApiKey(e.target.value); }}
               className="flex-1 px-3 py-1.5 bg-[oklch(0.15_0.02_260)] border border-[oklch(0.25_0.03_260)] rounded-lg text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50"
             />
-            <button
-              onClick={() => setShowApiSettings(false)}
-              className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300"
-            >
-              关闭
-            </button>
+            <button onClick={() => setShowApiSettings(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300">关闭</button>
           </div>
         </div>
       )}
@@ -412,9 +512,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 <Upload size={28} className="text-amber-400" />
               </div>
               <h3 className="text-lg font-semibold text-slate-200 mb-2">上传现场照片</h3>
-              <p className="text-sm text-slate-500 mb-6">
-                拍摄或上传包含窗洞/门洞的照片，AI 将自动识别洞口位置
-              </p>
+              <p className="text-sm text-slate-500 mb-6">拍摄或上传包含窗洞/门洞的照片，AI 将自动识别洞口位置</p>
 
               <div className="flex items-center justify-center gap-3 mb-4">
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
@@ -436,9 +534,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 </button>
               </div>
 
-              <p className="text-[10px] text-slate-600">
-                支持拖拽上传 / Ctrl+V 粘贴 / JPG、PNG 格式 / 最大 20MB
-              </p>
+              <p className="text-[10px] text-slate-600">支持拖拽上传 / Ctrl+V 粘贴 / JPG、PNG 格式 / 最大 20MB</p>
             </div>
           </div>
         )}
@@ -457,68 +553,90 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
           </div>
         )}
 
-        {/* ========== 步骤3: 选择产品 ========== */}
+        {/* ========== 步骤3: 调节窗洞 + 选择产品 ========== */}
         {step === 'assign-products' && (
           <>
-            {/* 左侧: 照片预览 + 窗洞标注 */}
+            {/* 左侧: 照片预览 + 可调节窗洞标注 */}
             <div className="flex-1 flex items-center justify-center p-4 bg-[oklch(0.10_0.02_260)]">
-              <div className="relative max-w-full max-h-full">
+              <div ref={imgContainerRef} className="relative max-w-full max-h-full select-none">
                 {photoUrl && (
                   <img
                     src={photoUrl}
                     alt="场景照片"
                     className="max-w-full max-h-[calc(100vh-120px)] object-contain rounded-lg"
+                    draggable={false}
                   />
                 )}
-                {/* 窗洞标注覆盖层 */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+
+                {/* 可调节窗洞覆盖层 */}
+                <svg
+                  className="absolute inset-0 w-full h-full"
+                  viewBox="0 0 1 1"
+                  preserveAspectRatio="none"
+                  style={{ touchAction: 'none' }}
+                >
                   {openings.map((opening) => {
-                    const { topLeft, bottomRight } = opening.corners;
-                    const x = topLeft.x * 100;
-                    const y = topLeft.y * 100;
-                    const w = (bottomRight.x - topLeft.x) * 100;
-                    const h = (bottomRight.y - topLeft.y) * 100;
-                    const centerX = x + w / 2;
-                    const centerY = y + h / 2;
+                    const { topLeft, topRight, bottomLeft, bottomRight } = opening.corners;
+                    const x = Math.min(topLeft.x, bottomLeft.x);
+                    const y = Math.min(topLeft.y, topRight.y);
+                    const w = Math.max(topRight.x, bottomRight.x) - x;
+                    const h = Math.max(bottomLeft.y, bottomRight.y) - y;
+                    const cx = x + w / 2;
+                    const cy = y + h / 2;
                     const product = products.find(p => p.openingId === opening.id);
                     const hasProduct = product?.windowUnit !== null;
+                    const isSelected = selectedOpeningId === opening.id;
+
+                    const handleSize = 0.015;
+                    const edgeHandleW = 0.03;
+                    const edgeHandleH = 0.008;
 
                     return (
                       <g key={opening.id}>
+                        {/* 窗洞矩形区域 */}
                         <rect
-                          x={`${x}%`} y={`${y}%`} width={`${w}%`} height={`${h}%`}
-                          fill={hasProduct ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.1)'}
-                          stroke={hasProduct ? '#f59e0b' : '#64748b'}
-                          strokeWidth="0.5"
-                          strokeDasharray={hasProduct ? 'none' : '2,2'}
-                          rx="0.3"
-                          className="pointer-events-auto cursor-pointer"
+                          x={x} y={y} width={w} height={h}
+                          fill={hasProduct ? 'rgba(245,158,11,0.12)' : 'rgba(100,116,139,0.08)'}
+                          stroke={isSelected ? '#f59e0b' : hasProduct ? '#f59e0b' : '#64748b'}
+                          strokeWidth={isSelected ? 0.004 : 0.002}
+                          strokeDasharray={hasProduct ? 'none' : '0.01,0.008'}
+                          style={{ cursor: 'move' }}
+                          onMouseDown={(e) => handleOpeningDragStart(e, opening.id, 'move')}
+                          onTouchStart={(e) => handleOpeningDragStart(e, opening.id, 'move')}
                           onClick={() => {
                             setSelectedOpeningId(opening.id);
-                            setShowProductPicker(true);
+                            if (!hasProduct) setShowProductPicker(true);
                           }}
                         />
+
+                        {/* 标签 */}
                         <text
-                          x={`${centerX}%`} y={`${centerY - 3}%`}
+                          x={cx} y={y - 0.015}
                           textAnchor="middle"
                           fill={hasProduct ? '#f59e0b' : '#94a3b8'}
-                          fontSize="3" fontWeight="600"
+                          fontSize="0.025" fontWeight="600"
+                          style={{ pointerEvents: 'none' }}
                         >
                           {opening.label}
                         </text>
+
                         {hasProduct && (
                           <text
-                            x={`${centerX}%`} y={`${centerY + 3}%`}
-                            textAnchor="middle" fill="#fbbf24" fontSize="2.5"
+                            x={cx} y={cy}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fill="#fbbf24" fontSize="0.022"
+                            style={{ pointerEvents: 'none' }}
                           >
                             {product?.windowUnit?.name}
                           </text>
                         )}
+
                         {!hasProduct && (
                           <text
-                            x={`${centerX}%`} y={`${centerY + 3}%`}
-                            textAnchor="middle" fill="#64748b" fontSize="2.5"
-                            className="pointer-events-auto cursor-pointer"
+                            x={cx} y={cy}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fill="#64748b" fontSize="0.02"
+                            style={{ cursor: 'pointer' }}
                             onClick={() => {
                               setSelectedOpeningId(opening.id);
                               setShowProductPicker(true);
@@ -527,10 +645,84 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                             + 点击添加产品
                           </text>
                         )}
+
+                        {/* ===== 拖拽手柄 ===== */}
+                        {/* 四角手柄 */}
+                        {[
+                          { type: 'tl' as const, px: x, py: y },
+                          { type: 'tr' as const, px: x + w, py: y },
+                          { type: 'bl' as const, px: x, py: y + h },
+                          { type: 'br' as const, px: x + w, py: y + h },
+                        ].map(({ type, px, py }) => (
+                          <rect
+                            key={type}
+                            x={px - handleSize / 2}
+                            y={py - handleSize / 2}
+                            width={handleSize}
+                            height={handleSize}
+                            fill="#f59e0b"
+                            stroke="#fff"
+                            strokeWidth={0.002}
+                            rx={0.002}
+                            style={{
+                              cursor: type === 'tl' || type === 'br' ? 'nwse-resize' : 'nesw-resize',
+                            }}
+                            onMouseDown={(e) => handleOpeningDragStart(e, opening.id, type)}
+                            onTouchStart={(e) => handleOpeningDragStart(e, opening.id, type)}
+                          />
+                        ))}
+
+                        {/* 边中点手柄 */}
+                        {[
+                          { type: 'top' as const, px: cx, py: y, isHorizontal: true },
+                          { type: 'bottom' as const, px: cx, py: y + h, isHorizontal: true },
+                          { type: 'left' as const, px: x, py: cy, isHorizontal: false },
+                          { type: 'right' as const, px: x + w, py: cy, isHorizontal: false },
+                        ].map(({ type, px, py, isHorizontal }) => (
+                          <rect
+                            key={type}
+                            x={isHorizontal ? px - edgeHandleW / 2 : px - edgeHandleH / 2}
+                            y={isHorizontal ? py - edgeHandleH / 2 : py - edgeHandleW / 2}
+                            width={isHorizontal ? edgeHandleW : edgeHandleH}
+                            height={isHorizontal ? edgeHandleH : edgeHandleW}
+                            fill="#f59e0b"
+                            stroke="#fff"
+                            strokeWidth={0.001}
+                            rx={0.002}
+                            style={{
+                              cursor: isHorizontal ? 'ns-resize' : 'ew-resize',
+                            }}
+                            onMouseDown={(e) => handleOpeningDragStart(e, opening.id, type)}
+                            onTouchStart={(e) => handleOpeningDragStart(e, opening.id, type)}
+                          />
+                        ))}
+
+                        {/* 尺寸标注 */}
+                        {opening.estimatedWidth && opening.estimatedHeight && (
+                          <>
+                            <text
+                              x={cx} y={y + h + 0.03}
+                              textAnchor="middle"
+                              fill="#94a3b8" fontSize="0.018"
+                              style={{ pointerEvents: 'none' }}
+                            >
+                              {opening.estimatedWidth} x {opening.estimatedHeight} mm
+                            </text>
+                          </>
+                        )}
                       </g>
                     );
                   })}
                 </svg>
+
+                {/* 操作提示 */}
+                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-lg text-[10px] text-slate-400">
+                  <Move size={10} />
+                  <span>拖拽窗洞可移动位置</span>
+                  <span className="text-slate-600">|</span>
+                  <GripHorizontal size={10} />
+                  <span>拖拽边缘/角点可调节大小</span>
+                </div>
               </div>
             </div>
 
@@ -539,9 +731,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
               <div className="p-4 border-b border-[oklch(0.20_0.03_260)]">
                 <h3 className="text-sm font-semibold text-slate-200 mb-1">窗洞产品配置</h3>
                 <p className="text-xs text-slate-500">{sceneDescription}</p>
-                <p className="text-xs text-amber-500 mt-1">
-                  已配置 {assignedCount}/{openings.length} 个窗洞
-                </p>
+                <p className="text-xs text-amber-500 mt-1">已配置 {assignedCount}/{openings.length} 个窗洞</p>
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -622,6 +812,34 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                     </div>
                   );
                 })}
+
+                {/* 手动添加窗洞按钮 */}
+                <button
+                  onClick={() => {
+                    const newId = `opening_${openings.length + 1}`;
+                    const newOpening: WindowOpening = {
+                      id: newId,
+                      label: `窗洞 ${openings.length + 1}`,
+                      corners: {
+                        topLeft: { x: 0.3, y: 0.3 },
+                        topRight: { x: 0.7, y: 0.3 },
+                        bottomLeft: { x: 0.3, y: 0.7 },
+                        bottomRight: { x: 0.7, y: 0.7 },
+                      },
+                      confidence: 1.0,
+                      estimatedWidth: 1500,
+                      estimatedHeight: 1200,
+                    };
+                    setOpenings(prev => [...prev, newOpening]);
+                    setProducts(prev => [...prev, { openingId: newId, windowUnit: null }]);
+                    setSelectedOpeningId(newId);
+                    toast.success('已添加新窗洞，拖拽调节位置和大小');
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-slate-600 rounded-xl text-xs text-slate-500 hover:text-amber-400 hover:border-amber-500/50 transition-colors"
+                >
+                  <Plus size={14} />
+                  手动添加窗洞
+                </button>
               </div>
 
               <div className="p-4 border-t border-[oklch(0.20_0.03_260)]">
@@ -659,12 +877,11 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                   <div className="text-center">
                     <Loader2 size={32} className="text-amber-400 animate-spin mx-auto mb-3" />
                     <p className="text-sm text-slate-400">正在构建 3D 场景...</p>
-                    <p className="text-xs text-slate-600 mt-1">照片映射到墙面 + 窗洞挖空 + 放入门窗模型</p>
+                    <p className="text-xs text-slate-600 mt-1">照片贴到墙面 + 窗洞立体边框 + 放入门窗模型</p>
                   </div>
                 </div>
               )}
 
-              {/* 3D 操作提示 */}
               {is3DReady && (
                 <div className="absolute bottom-4 left-4 flex items-center gap-3 px-3 py-2 bg-black/50 backdrop-blur-sm rounded-lg text-[10px] text-slate-400">
                   <span>左键拖拽旋转</span>
@@ -683,7 +900,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                 <p className="text-xs text-slate-500">{sceneDescription}</p>
               </div>
 
-              {/* 已安装的产品列表 */}
+              {/* 已安装产品 */}
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
                 <h4 className="text-xs font-semibold text-slate-400 mb-2">已安装产品</h4>
                 <div className="space-y-1.5">
@@ -733,24 +950,18 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
                 <h4 className="text-xs font-semibold text-slate-400 mb-2">场景设置</h4>
                 <div className="space-y-3">
-                  {/* 光照强度 */}
                   <div>
                     <div className="flex justify-between text-[10px] mb-1">
                       <span className="text-slate-500 flex items-center gap-1"><Sun size={10} /> 光照强度</span>
                       <span className="text-slate-400 font-mono">{Math.round(lightIntensity * 100)}%</span>
                     </div>
                     <input
-                      type="range"
-                      min={0.2}
-                      max={2}
-                      step={0.1}
+                      type="range" min={0.2} max={2} step={0.1}
                       value={lightIntensity}
                       onChange={(e) => setLightIntensity(parseFloat(e.target.value))}
                       className="w-full h-1 bg-slate-700 rounded-full appearance-none cursor-pointer accent-amber-500"
                     />
                   </div>
-
-                  {/* 网格显示 */}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-slate-500 flex items-center gap-1">
                       <Grid3x3 size={10} /> 地面网格
@@ -769,22 +980,10 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
               <div className="p-3 border-b border-[oklch(0.20_0.03_260)]">
                 <h4 className="text-xs font-semibold text-slate-400 mb-2">操作说明</h4>
                 <ul className="text-[10px] text-slate-500 space-y-1">
-                  <li className="flex items-start gap-1.5">
-                    <RotateCw size={10} className="shrink-0 mt-0.5" />
-                    <span>鼠标左键拖拽旋转 3D 场景</span>
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Maximize2 size={10} className="shrink-0 mt-0.5" />
-                    <span>滚轮缩放，右键拖拽平移</span>
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Move3d size={10} className="shrink-0 mt-0.5" />
-                    <span>照片贴在墙面上，窗洞位置放入 3D 门窗</span>
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Eye size={10} className="shrink-0 mt-0.5" />
-                    <span>切换视角查看不同角度的安装效果</span>
-                  </li>
+                  <li className="flex items-start gap-1.5"><RotateCw size={10} className="shrink-0 mt-0.5" /><span>鼠标左键拖拽旋转 3D 场景</span></li>
+                  <li className="flex items-start gap-1.5"><Maximize2 size={10} className="shrink-0 mt-0.5" /><span>滚轮缩放，右键拖拽平移</span></li>
+                  <li className="flex items-start gap-1.5"><Move3d size={10} className="shrink-0 mt-0.5" /><span>照片贴在墙面上，窗洞位置放入 3D 门窗</span></li>
+                  <li className="flex items-start gap-1.5"><Eye size={10} className="shrink-0 mt-0.5" /><span>切换视角查看不同角度的安装效果</span></li>
                 </ul>
               </div>
 
@@ -798,10 +997,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
                   下载截图
                 </button>
                 <button
-                  onClick={() => {
-                    setIs3DReady(false);
-                    setStep('assign-products');
-                  }}
+                  onClick={() => { setIs3DReady(false); setStep('assign-products'); }}
                   className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600 transition-colors"
                 >
                   <RefreshCw size={12} />
@@ -819,10 +1015,7 @@ export default function SceneFusion3D({ windows, selectedWindowId }: SceneFusion
 // ===== 辅助组件 =====
 
 function StepIndicator({ number, label, active, done }: {
-  number: number;
-  label: string;
-  active: boolean;
-  done: boolean;
+  number: number; label: string; active: boolean; done: boolean;
 }) {
   return (
     <div className={`flex items-center gap-1.5 ${active ? 'text-amber-400' : done ? 'text-green-400' : 'text-slate-600'}`}>
@@ -839,11 +1032,7 @@ function StepIndicator({ number, label, active, done }: {
 }
 
 function ProductPickerModal({
-  opening,
-  existingWindows,
-  onSelectTemplate,
-  onSelectExisting,
-  onClose,
+  opening, existingWindows, onSelectTemplate, onSelectExisting, onClose,
 }: {
   opening: WindowOpening;
   existingWindows: WindowUnit[];
