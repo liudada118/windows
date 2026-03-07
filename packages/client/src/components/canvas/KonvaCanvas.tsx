@@ -13,10 +13,13 @@ import GridLayer from './GridLayer';
 import FrameRenderer from './FrameRenderer';
 import OpeningRenderer from './OpeningRenderer';
 import DimensionRenderer from './DimensionRenderer';
+import type { DimensionClickInfo } from './DimensionRenderer';
+import DimensionEditOverlay from './DimensionEditOverlay';
 import SelectionOverlay from './SelectionOverlay';
 import CompositeWindowRenderer from './CompositeWindowRenderer';
 import { COLORS, MM_TO_PX } from '@/lib/constants';
 import { validateWindowSize, validateMullionPlacement, validateSashPlacement } from '@/lib/validators';
+import { CONSTRAINTS } from '@windoor/shared';
 import { findLeafOpeningAtPoint, findMullionAtPoint as findMullionAtPointGeo, snapToGrid } from '@/lib/geometry';
 import { toast } from 'sonner';
 
@@ -44,6 +47,29 @@ function getTouchCenter(touches: TouchList): { x: number; y: number } {
   };
 }
 
+/** 在 Opening 树中查找包含指定 openingId 的父 Opening 和对应的 Mullion */
+function findParentAndMullion(
+  opening: import('@windoor/shared').Opening,
+  targetOpeningId: string
+): { parentOpening: import('@windoor/shared').Opening; mullion: import('@windoor/shared').Mullion | null; childIdx: number } | null {
+  // 检查当前 opening 的子分格中是否包含目标
+  for (let i = 0; i < opening.childOpenings.length; i++) {
+    if (opening.childOpenings[i].id === targetOpeningId) {
+      return {
+        parentOpening: opening,
+        mullion: opening.mullions[0] || null,
+        childIdx: i,
+      };
+    }
+  }
+  // 递归查找
+  for (const child of opening.childOpenings) {
+    const result = findParentAndMullion(child, targetOpeningId);
+    if (result) return result;
+  }
+  return null;
+}
+
 /** Konva.js 主画布组件 */
 export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
@@ -66,6 +92,7 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const selectedCompositeWindowId = useDesignStore((s) => s.selectedCompositeWindowId);
   const selectCompositeWindow = useDesignStore((s) => s.selectCompositeWindow);
   const updateCompositeWindowPosition = useDesignStore((s) => s.updateCompositeWindowPosition);
+  const updateWindowSize = useDesignStore((s) => s.updateWindowSize);
 
   // Canvas Store
   const activeTool = useCanvasStore((s) => s.activeTool);
@@ -114,6 +141,9 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
   const [lastTouchCenter, setLastTouchCenter] = useState({ x: 0, y: 0 });
   const [touchStartTime, setTouchStartTime] = useState(0);
   const [isSingleTouchActive, setIsSingleTouchActive] = useState(false);
+
+  // 尺寸编辑状态
+  const [dimensionEditInfo, setDimensionEditInfo] = useState<DimensionClickInfo | null>(null);
 
   /** 屏幕坐标转世界坐标 */
   const screenToWorld = useCallback(
@@ -198,6 +228,21 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     (e: KonvaEventObject<MouseEvent>) => {
       const stage = stageRef.current;
       if (!stage) return;
+
+      // 检测是否点击了尺寸标注数值
+      const pointerPos = stage.getPointerPosition();
+      if (pointerPos) {
+        const intersect = stage.getIntersection(pointerPos);
+        if (intersect && typeof intersect.name === 'function' && intersect.name() === 'dimension-label') {
+          // 触发尺寸标注的 mousedown 事件
+          intersect.fire('mousedown', {
+            evt: e.evt,
+            cancelBubble: false,
+          });
+          return;
+        }
+      }
+
       const pos = stage.getPointerPosition();
       if (!pos) return;
       const { x: sx, y: sy } = pos;
@@ -892,6 +937,109 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
     };
   }, []);
 
+  // ========== 尺寸编辑处理 ==========
+
+  /** 点击尺寸数值时触发 */
+  const handleDimensionClick = useCallback(
+    (info: DimensionClickInfo) => {
+      setDimensionEditInfo(info);
+    },
+    []
+  );
+
+  /** 确认尺寸修改 */
+  const handleDimensionConfirm = useCallback(
+    (info: DimensionClickInfo, newValue: number) => {
+      const win = designData.windows.find((w) => w.id === info.windowId);
+      if (!win) {
+        setDimensionEditInfo(null);
+        return;
+      }
+
+      // 校验尺寸范围
+      if (newValue < 100 || newValue > 10000) {
+        toast.error('尺寸必须在 100mm ~ 10000mm 之间');
+        setDimensionEditInfo(null);
+        return;
+      }
+
+      pushHistory(getSnapshot());
+
+      switch (info.dimensionType) {
+        case 'window-width': {
+          const validation = validateWindowSize(newValue, win.height);
+          if (!validation.valid) {
+            toast.error(validation.errors[0]);
+            setDimensionEditInfo(null);
+            return;
+          }
+          updateWindowSize(win.id, newValue, win.height);
+          toast.success(`窗宽已修改为 ${newValue}mm`);
+          break;
+        }
+        case 'window-height': {
+          const validation = validateWindowSize(win.width, newValue);
+          if (!validation.valid) {
+            toast.error(validation.errors[0]);
+            setDimensionEditInfo(null);
+            return;
+          }
+          updateWindowSize(win.id, win.width, newValue);
+          toast.success(`窗高已修改为 ${newValue}mm`);
+          break;
+        }
+        case 'opening-width':
+        case 'opening-height': {
+          // 分格尺寸修改：通过调整中梃位置来改变分格大小
+          // 找到包含该 opening 的父 opening 和对应的 mullion
+          const rootOpening = win.frame.openings[0];
+          if (rootOpening) {
+            const result = findParentAndMullion(rootOpening, info.openingId!);
+            if (result) {
+              const { parentOpening, mullion, childIdx } = result;
+              const isWidth = info.dimensionType === 'opening-width';
+              const delta = newValue - info.currentValue;
+
+              if (mullion) {
+                let newMullionPos: number;
+                if (isWidth) {
+                  // 修改宽度 -> 移动垂直中梃
+                  if (childIdx === 0) {
+                    // 第一个子分格，向右移动中梃
+                    newMullionPos = mullion.position + delta;
+                  } else {
+                    // 第二个子分格，向左移动中梃
+                    newMullionPos = mullion.position - delta;
+                  }
+                } else {
+                  // 修改高度 -> 移动水平中梃
+                  if (childIdx === 0) {
+                    newMullionPos = mullion.position + delta;
+                  } else {
+                    newMullionPos = mullion.position - delta;
+                  }
+                }
+                moveMullion(win.id, mullion.id, newMullionPos);
+                toast.success(`分格尺寸已修改为 ${newValue}mm`);
+              }
+            } else {
+              toast.error('无法修改此分格尺寸');
+            }
+          }
+          break;
+        }
+      }
+
+      setDimensionEditInfo(null);
+    },
+    [designData.windows, pushHistory, getSnapshot, updateWindowSize, moveMullion]
+  );
+
+  /** 取消尺寸编辑 */
+  const handleDimensionCancel = useCallback(() => {
+    setDimensionEditInfo(null);
+  }, []);
+
   // 光标样式
   const getCursor = () => {
     if (isPanning || spaceHeld) return 'grab';
@@ -956,9 +1104,14 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
                   />
                 ))}
 
-                {/* 尺寸标注: 选中窗户显示完整标注，未选中只显示总尺寸 */}
-                {showDimensions && isSelected && (
-                  <DimensionRenderer window={win} zoom={zoom} />
+                {/* 尺寸标注: 所有窗户都显示尺寸，点击可编辑 */}
+                {showDimensions && (
+                  <DimensionRenderer
+                    window={win}
+                    zoom={zoom}
+                    isSelected={isSelected}
+                    onDimensionClick={handleDimensionClick}
+                  />
                 )}
 
                 {/* 选中高亮 */}
@@ -1055,6 +1208,12 @@ export default function KonvaCanvas({ width, height }: KonvaCanvasProps) {
           })()}
         </Layer>
       </Stage>
+      {/* 尺寸编辑浮层 - 在 Stage 外部渲染 HTML 输入框 */}
+      <DimensionEditOverlay
+        editInfo={dimensionEditInfo}
+        onConfirm={handleDimensionConfirm}
+        onCancel={handleDimensionCancel}
+      />
     </div>
   );
 }
