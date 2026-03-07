@@ -29,7 +29,7 @@ import QuoteDialog from '@/components/QuoteDialog';
 import { useIsTouch, useScreenSize } from '@/hooks/useIsMobile';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch, HelpCircle } from 'lucide-react';
+import { Menu, Box, PenTool, Loader2, Camera, Calculator, Download, GitBranch, HelpCircle, Move3d } from 'lucide-react';
 import { storageAdapter } from '@/lib/storageAdapter';
 import BOMPanel from '@/components/BOMPanel';
 import ExportDialog from '@/components/ExportDialog';
@@ -41,6 +41,7 @@ import { useLocation } from 'wouter';
 
 const ThreePreview = lazy(() => import('@/components/ThreePreview'));
 const ScenePreview = lazy(() => import('@/components/ScenePreview'));
+const SceneFusion3D = lazy(() => import('@/components/SceneFusion3D'));
 
 const MM_TO_PX = 0.5;
 
@@ -91,7 +92,7 @@ export default function EditorPage() {
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene'>('2d');
+  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene' | 'scene3d'>('2d');
   const [bomOpen, setBomOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
@@ -143,12 +144,12 @@ export default function EditorPage() {
   }, [redoAction, getSnapshot, restoreSnapshot]);
 
   // ===== View mode switching =====
-  const handleSetViewMode = useCallback((mode: '2d' | '3d' | 'scene') => {
+  const handleSetViewMode = useCallback((mode: '2d' | '3d' | 'scene' | 'scene3d') => {
     if ((mode === '3d' || mode === 'scene') && windows.length === 0) {
       toast.info('请先在2D编辑器中创建窗口');
       return;
     }
-    const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式' };
+    const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式', 'scene3d': '3D 实景融合' };
     toast.info(`已切换到 ${labels[mode]}`);
     setViewMode(mode);
   }, [windows.length]);
@@ -398,6 +399,7 @@ export default function EditorPage() {
       switch (e.key) {
         case '3': handleSetViewMode(viewMode === '3d' ? '2d' : '3d'); break;
         case '4': handleSetViewMode(viewMode === 'scene' ? '2d' : 'scene'); break;
+        case '5': handleSetViewMode(viewMode === 'scene3d' ? '2d' : 'scene3d'); break;
         case '?': setShortcutsOpen(true); break;
       }
     };
@@ -446,6 +448,17 @@ export default function EditorPage() {
             >
               <Camera size={10} />
               实景
+            </button>
+            <button
+              onClick={() => handleSetViewMode('scene3d')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-all ${
+                viewMode === 'scene3d'
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+                  : 'text-slate-500'
+              }`}
+            >
+              <Move3d size={10} />
+              3D实景
             </button>
           </div>
 
@@ -575,7 +588,7 @@ export default function EditorPage() {
               />
             </Suspense>
           </div>
-        ) : (
+        ) : viewMode === 'scene' ? (
           /* Scene Preview Mode - 实景融合 */
           <div className="flex-1 flex flex-col overflow-hidden relative">
             <Suspense
@@ -594,10 +607,29 @@ export default function EditorPage() {
               />
             </Suspense>
           </div>
+        ) : (
+          /* 3D Scene Fusion Mode - 3D实景融合 */
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            <Suspense
+              fallback={
+                <div className="absolute inset-0 flex items-center justify-center bg-[oklch(0.10_0.02_260)]">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+                    <span className="text-sm text-slate-400">加载 3D 实景引擎...</span>
+                  </div>
+                </div>
+              }
+            >
+              <SceneFusion3D
+                windows={windows}
+                selectedWindowId={selectedWindowId}
+              />
+            </Suspense>
+          </div>
         )}
 
         {/* Right Properties Panel - desktop only, hidden in scene mode */}
-        {!isMobileLayout && viewMode !== 'scene' && (
+        {!isMobileLayout && viewMode !== 'scene' && viewMode !== 'scene3d' && (
           <PropertiesPanel
             selectedWindow={selectedWindow}
             activeProfileSeries={activeProfileSeries}

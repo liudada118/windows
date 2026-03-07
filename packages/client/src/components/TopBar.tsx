@@ -2,7 +2,7 @@
 // 工业蓝图美学: 精简的顶部菜单栏 + 2D/3D/实景视图切换
 // 新增: 多格式导出、算料、版本管理
 
-import { FileDown, FilePlus, Save, FileText, HelpCircle, Box, PenTool, Camera, Calculator, Download, GitBranch, Pencil, Presentation } from 'lucide-react';
+import { FileDown, FilePlus, Save, FileText, HelpCircle, Box, PenTool, Camera, Calculator, Download, GitBranch, Pencil, Presentation, Move3d } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface TopBarProps {
@@ -10,8 +10,8 @@ interface TopBarProps {
   onExportJSON: () => void;
   windowCount: number;
   onOpenQuote: () => void;
-  viewMode: '2d' | '3d' | 'scene';
-  onSetViewMode: (mode: '2d' | '3d' | 'scene') => void;
+  viewMode: '2d' | '3d' | 'scene' | 'scene3d';
+  onSetViewMode: (mode: '2d' | '3d' | 'scene' | 'scene3d') => void;
   onOpenBOM?: () => void;
   onOpenExport?: () => void;
   onOpenVersions?: () => void;
@@ -69,6 +69,17 @@ export default function TopBar({
         >
           <Camera size={12} />
           <span>实景</span>
+        </button>
+        <button
+          onClick={() => onSetViewMode('scene3d')}
+          className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all duration-200 ${
+            viewMode === 'scene3d'
+              ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30 font-medium'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <Move3d size={12} />
+          <span>3D实景</span>
         </button>
       </div>
 

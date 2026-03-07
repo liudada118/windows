@@ -77,7 +77,7 @@ export default function Editor() {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene'>('2d');
+  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'scene' | 'scene3d'>('2d');
 
   // v2.0: 中梃拖拽状态
   const [isDraggingMullion, setIsDraggingMullion] = useState(false);
@@ -587,12 +587,12 @@ export default function Editor() {
     });
   }, [state.windows.length]);
 
-  const handleSetViewMode = useCallback((mode: '2d' | '3d' | 'scene') => {
+  const handleSetViewMode = useCallback((mode: '2d' | '3d' | 'scene' | 'scene3d') => {
     if ((mode === '3d' || mode === 'scene') && state.windows.length === 0) {
       toast.info('请先在2D编辑器中创建窗口');
       return;
     }
-    const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式' };
+    const labels = { '2d': '2D 编辑模式', '3d': '3D 预览模式', 'scene': '实景融合模式', 'scene3d': '3D 实景融合' };
     toast.info(`已切换到 ${labels[mode]}`);
     setViewMode(mode);
   }, [state.windows.length]);
